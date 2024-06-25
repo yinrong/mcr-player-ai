@@ -1,3 +1,8 @@
+import random
+import numpy as np
+import torch
+from functional import seq
+
 
 # 设置起始和结束ID
 id_start = 10001
@@ -121,3 +126,12 @@ def custom_pretty_print(obj, indent=0, max_inline_length=20):
             print(' ' * indent + '[')
             print_aligned_list(obj, indent + 4)
             print(' ' * indent + ']')
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
