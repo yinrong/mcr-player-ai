@@ -6,6 +6,8 @@ import torch.optim as optim
 from collections import deque
 from ai.env import SimplifiedMahjongEnv, num_actions
 import mj
+import os
+import pickle
 
 if __name__ == '__main__':
     set_seed(1)
@@ -16,6 +18,10 @@ if __name__ == '__main__':
     dropout_prob = 0.1
     num_heads = 8
     num_layers = 3
+    estimate_win_tile = 18
+    fan_keep = 2 * estimate_win_tile
+    fan_save = 50 * estimate_win_tile
+
 
     cnn_model = CNNQNetwork(input_shape, num_actions, hidden_size, dropout_prob)
     transformer_model = TransformerQNetwork(input_shape, num_actions, hidden_size, num_heads, num_layers, dropout_prob)
@@ -32,8 +38,11 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     loss_function = nn.MSELoss()
 
-    buffer = []
-    unique_buffer = []
+    if os.path.exists("buffer_history.pkl"):
+        with open("buffer_history.pkl", "rb") as f:
+            fan_buffers = pickle.load(f)
+    else:
+        fan_buffers = {}
     batch_size = 64
     gamma = 0.99
     explore = 1.0
@@ -78,13 +87,14 @@ if __name__ == '__main__':
         global explore
         if explore > epsilon_min:
             explore *= epsilon_decay
-
+    
     env = SimplifiedMahjongEnv(model)
     last_hist_fan = 0
     max_len = 3000
     for episode in range(20000):
         state = env.reset()
         total_reward = 0
+
 
         while not env.done:
             if np.random.rand() < explore:
@@ -93,19 +103,41 @@ if __name__ == '__main__':
             else:
                 env.step()
 
-        buffer += env.buffer
-        if len(buffer) > max_len:
-            random.shuffle(buffer)
-            buffer = buffer[-max_len:] + unique_buffer
-        for n in range(len(buffer) // 1000 + 1):
+        # Add fan to fan_buffers
+        if len(env.this_fans) == 0:
+            current_fan = 'F'
+        else:
+            current_fan = random.choice(env.this_fans)
+        if current_fan not in fan_buffers:
+            fan_buffers[current_fan] = deque(maxlen=fan_save)
+        if len(fan_buffers[current_fan]) > fan_save:
+            fan_buffers[current_fan] = deque(fan_buffers[current_fan], maxlen=fan_save)
+        fan_buffers[current_fan] += env.buffer
+
+        # Ensure diverse training set
+        buffer = []
+        for fan, buf in fan_buffers.items():
+            if len(buf) == 0: continue
+            if len(buf) > fan_keep:
+                buf = random.sample(buf, fan_keep)
+            buffer.extend(buf)
+
+        for n in range(len(buffer) // batch_size // 2 + 1):
             train_step()
         
         if len(env.hist_fan) != last_hist_fan:
-            unique_buffer += env.buffer
-            print(f"episode={episode}, explore={explore:.2f}, data={len(buffer)}.{len(unique_buffer)}, found={len(env.hist_fan)}.{seq(env.hist_fan).make_string('.')}")
+            s = (seq(fan_buffers.items())
+                .map(lambda e: f"{e[0]}.{len(e[1])//estimate_win_tile}")
+                .make_string('_')
+            )
+            print(f"event=found, episode={episode}, explore={explore:.2f},"
+                  +f" buffer={len(buffer)}, found=sum.{len(env.hist_fan)}_{s}")
             last_hist_fan = len(env.hist_fan)
 
-        if episode % 300 == 1:
+        if episode % 300 == 299:
             target_model.load_state_dict(model.state_dict())
+            with open("buffer_history.pkl", "wb") as f:
+                pickle.dump(fan_buffers, f)
+            print(f'event=save, episode={episode}')
 
     print("Training finished.")

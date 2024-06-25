@@ -29,10 +29,11 @@ class SimplifiedMahjongEnv:
             reward = 0
         else:
             reward = mj.quick_calc(p)
-            reward, details = mj.quick_calc_detail(p)
-            for detail in details:
-                if detail not in self.hist_fan:
-                    self.hist_fan.append(detail)
+            reward, fans = mj.quick_calc_detail(p)
+            for fan in fans:
+                if fan not in self.hist_fan:
+                    self.hist_fan.append(fan)
+            self.this_fans = fans
         self.done = reward >= 8 or self.is_deck_empty()
 
         reward /= (min(len(self.state['discarded']), 10) + 10)
