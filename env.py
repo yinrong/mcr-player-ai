@@ -30,6 +30,8 @@ class SimplifiedMahjongEnv:
         else:
             reward = mj.quick_calc(p)
             reward, fans = mj.quick_calc_detail(p)
+            #if reward > 0:
+            #    print(reward, fans)
             for fan in fans:
                 if fan not in self.hist_fan:
                     self.hist_fan.append(fan)
@@ -53,7 +55,12 @@ class SimplifiedMahjongEnv:
             # 回溯奖励
             if reward >= 8:
                 reward *= 100
-            step_reward = reward / 200
+                step_reward = reward / 200
+            elif reward > 0:
+                reward /= 10
+                step_reward = reward / 200
+            else:
+                step_reward = 0
             for i in range(len(self.buffer)):
                 self.buffer[i][2] = step_reward
 
@@ -113,6 +120,15 @@ class SimplifiedMahjongEnv:
         hand_tensor = torch.tensor(hand_array, dtype=torch.float32).unsqueeze(0)
         q_values = self.model(hand_tensor).detach().numpy().flatten()
         discard_tile = min(hand, key=lambda x: q_values[x])
+        return discard_tile
+
+    def discard_by_model_reverse (self, hand):
+        hand_array = np.zeros(num_actions)
+        for tile in hand:
+            hand_array[tile-1] += 1
+        hand_tensor = torch.tensor(hand_array, dtype=torch.float32).unsqueeze(0)
+        q_values = self.model(hand_tensor).detach().numpy().flatten()
+        discard_tile = max(hand, key=lambda x: q_values[x])
         return discard_tile
 
     def state2array (self):

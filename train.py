@@ -46,8 +46,8 @@ if __name__ == '__main__':
     batch_size = 64
     gamma = 0.99
     explore = 1.0
-    epsilon_min = 0.5
-    epsilon_decay = 1 - 1e-5
+    epsilon_min = 0.1
+    epsilon_decay = 1 - 1e-3
 
     def train_step():
         if len(buffer) < batch_size:
@@ -99,37 +99,40 @@ if __name__ == '__main__':
         while not env.done:
             if np.random.rand() < explore:
                 #env.step(discard_by=env.discard_rand)
-                env.step(discard_by=env.discard_strategy1)
+                #env.step(discard_by=env.discard_strategy1)
+                env.step(discard_by=env.discard_by_model_reverse)
             else:
                 env.step()
 
         # Add fan to fan_buffers
         if len(env.this_fans) == 0:
-            current_fan = 'F'
+            current_fans = ['F']
         else:
-            current_fan = random.choice(env.this_fans)
-        if current_fan not in fan_buffers:
-            fan_buffers[current_fan] = deque(maxlen=fan_save)
-        if len(fan_buffers[current_fan]) > fan_save:
-            fan_buffers[current_fan] = deque(fan_buffers[current_fan], maxlen=fan_save)
-        fan_buffers[current_fan] += env.buffer
-
-        # Ensure diverse training set
-        buffer = []
-        for fan, buf in fan_buffers.items():
-            if len(buf) == 0: continue
-            if len(buf) > fan_keep:
-                buf = random.sample(buf, fan_keep)
-            buffer.extend(buf)
-
-        for n in range(len(buffer) // batch_size // 2 + 1):
-            train_step()
+            current_fans = env.this_fans
+        for current_fan in current_fans:
+            if current_fan not in fan_buffers:
+                fan_buffers[current_fan] = deque(maxlen=fan_save)
+            if len(fan_buffers[current_fan]) > fan_save:
+                fan_buffers[current_fan] = deque(fan_buffers[current_fan], maxlen=fan_save)
+            fan_buffers[current_fan] += env.buffer
         
         if len(env.hist_fan) != last_hist_fan:
-            s = (seq(fan_buffers.items())
-                .map(lambda e: f"{e[0]}.{len(e[1])//estimate_win_tile}")
-                .make_string('_')
-            )
+
+            # Ensure diverse training set
+            buffer = []
+            for fan, buf in fan_buffers.items():
+                if len(buf) == 0: continue
+                if len(buf) > fan_keep:
+                    buf = random.sample(buf, fan_keep)
+                buffer.extend(buf)
+
+            for n in range(50):
+                train_step()
+                s = (seq(fan_buffers.items())
+                    .map(lambda e: f"{e[0]}.{len(e[1])//estimate_win_tile}")
+                    .make_string('_')
+                )
+
             print(f"event=found, episode={episode}, explore={explore:.2f},"
                   +f" buffer={len(buffer)}, found=sum.{len(env.hist_fan)}_{s}")
             last_hist_fan = len(env.hist_fan)
