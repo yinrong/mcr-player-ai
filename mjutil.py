@@ -62,6 +62,19 @@ render_base = {
     'P': 9*3 + 6,
 }
 emoji = '🀇🀈🀉🀊🀋🀌🀍🀎🀏🀐🀑🀒🀓🀔🀕🀖🀗🀘🀙🀚🀛🀜🀝🀞🀟🀠🀡🀀🀁🀂🀃🀄🀅🀆'
+
+def renderSimple (n, hand, discard):
+    s = ''
+    if discard:
+        hand.remove(discard)
+    for h in hand:
+        s += emoji[h - 1]
+    if discard:
+        s += ' '
+        s += emoji[discard - 1]
+    print(f'{n}.', s)
+
+
 def isdigit (c):
     return re.match(r'[0-9]', c)
 def render (s):
