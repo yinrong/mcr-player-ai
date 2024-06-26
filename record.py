@@ -13,14 +13,14 @@ def read_record(record_id):
 
 def main():
     # 指定要读取的ID
-    record_id = 10001  # 示例ID，可以更改为其他ID
+    record_id = 10005  # 示例ID，可以更改为其他ID
 
     # 读取记录
     record = read_record(record_id)
     
     if record:
         # 使用 custom_pretty_print 打印
-        custom_pretty_print(record)
+        custom_pretty_print(record['script']['a'], max_line_length=200)
     else:
         print(f"Record with ID {record_id} not found.")
 

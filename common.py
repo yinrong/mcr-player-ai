@@ -9,7 +9,7 @@ id_start = 10001
 id_end = 114466
 
 # 定义SQLite数据库文件路径
-db_file = 'data_records.db'
+db_file = r'data_records.db'
 
 
 def custom_pretty_print(obj, indent=0):
@@ -66,7 +66,7 @@ def custom_pretty_print(obj, indent=0):
             print(' ' * indent + '[')
             print_aligned_list(obj, indent + 4)
             print(' ' * indent + ']')
-def custom_pretty_print(obj, indent=0, max_inline_length=20):
+def custom_pretty_print(obj, indent=0, max_inline_length=20, max_line_length=10):
     def is_short_list(lst):
         return all(isinstance(item, (str, int, float)) and len(str(item)) < 20 for item in lst)
 
@@ -76,10 +76,10 @@ def custom_pretty_print(obj, indent=0, max_inline_length=20):
             max_lens = {key: max(len(str(item[key])) for item in lst) for key in keys}
             header = ' '.join(f'{key:<{max_lens[key]}}' for key in keys)
             print(' ' * indent + header)
-            for item in lst[:10]:
+            for item in lst[:max_line_length]:
                 row = ' '.join(f'{str(item[key]):<{max_lens[key]}}' for key in keys)
                 print(' ' * indent + row)
-            if len(lst) > 10:
+            if len(lst) > max_line_length:
                 print(' ' * indent + '...')
         else:
             max_len = max(len(str(item)) for item in lst)
@@ -87,7 +87,7 @@ def custom_pretty_print(obj, indent=0, max_inline_length=20):
             for i in range(0, min(len(lst), 10), row_len):
                 row_items = lst[i:i + row_len]
                 print(' ' * indent + ' '.join(f'{str(item):<{max_len}}' for item in row_items))
-            if len(lst) > 10:
+            if len(lst) > max_line_length:
                 print(' ' * indent + '...')
 
     if isinstance(obj, dict):
@@ -104,12 +104,12 @@ def custom_pretty_print(obj, indent=0, max_inline_length=20):
                         print_aligned_list(value, indent + 4)
                     else:
                         print(' ' * indent + '[')
-                        for item in value[:10]:
+                        for item in value[:max_line_length]:
                             if isinstance(item, dict):
                                 custom_pretty_print(item, indent + 4)
                             else:
                                 print(' ' * (indent + 4) + str(item) + ',')
-                        if len(value) > 10:
+                        if len(value) > max_line_length:
                             print(' ' * (indent + 4) + '...')
                         print(' ' * indent + ']')
             else:
