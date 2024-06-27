@@ -1,9 +1,15 @@
+import time
 from common import *
 
 import requests
 import json
 import sqlite3
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# 定义常量
+BATCH_SIZE = 1000
+CONCURRENCY = 3
 
 def main():
 
@@ -35,16 +41,16 @@ def main():
         return row[0] if row[0] is not None else id_start
 
     # 保存记录到数据库
-    def save_record(record_id, data):
+    def save_records(records):
         conn = sqlite3.connect(db_file)
         cursor = conn.cursor()
-        cursor.execute('INSERT OR IGNORE INTO records (id, data) VALUES (?, ?)', (record_id, json.dumps(data)))
-        cursor.execute('INSERT OR REPLACE INTO progress (id) VALUES (?)', (record_id,))
+        cursor.executemany('INSERT OR IGNORE INTO records (id, data) VALUES (?, ?)', records)
+        cursor.executemany('INSERT OR REPLACE INTO progress (id) VALUES (?)', [(record_id,) for record_id, _ in records])
         conn.commit()
         conn.close()
 
     # 发送请求并获取数据
-    def fetch_data(record_id):
+    def fetch_data(record_id, session):
         url = 'https://tziakcha.xyz/_qry/record/'
         headers = {
             'Accept': '*/*',
@@ -63,8 +69,19 @@ def main():
             'sec-ch-ua-platform': '"Linux"'
         }
         data = f'id={record_id}'
-        response = requests.post(url, headers=headers, data=data)
-        return response.json()
+        attempt = 1
+        while True:
+            try:
+                response = session.post(url, headers=headers, data=data, timeout=5)
+                if response.status_code == 404:
+                    return record_id, 404
+                response.raise_for_status()  # If the response was unsuccessful, an HTTPError will be raised
+                return record_id, response.json()
+            except requests.exceptions.RequestException as e:
+                print(url, data, e)
+                time.sleep(4 * attempt)
+                print('retry for the', attempt, 'time')
+                attempt += 1
 
     # 初始化数据库
     initialize_db()
@@ -72,12 +89,26 @@ def main():
     # 获取上次下载的ID
     last_downloaded_id = get_last_downloaded_id()
 
-    # 下载数据并保存到数据库
+    records = []
+    session = requests.Session()
     with tqdm(total=id_end - id_start + 1, initial=last_downloaded_id - id_start, unit='record') as pbar:
-        for record_id in range(last_downloaded_id, id_end + 1):
-            data = fetch_data(record_id)
-            save_record(record_id, data)
-            pbar.update(1)
+        with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+            futures = [executor.submit(fetch_data, record_id, session) for record_id in range(last_downloaded_id, id_end + 1)]
+
+            for future in as_completed(futures):
+                record_id, data = future.result()
+                if data == 404:
+                    print(record_id, data)
+                else:
+                    records.append((record_id, json.dumps(data)))
+                if len(records) >= BATCH_SIZE:
+                    save_records(records)
+                    records = []
+                pbar.update(1)
+
+            # Save remaining records
+            if records:
+                save_records(records)
 
     print("数据下载完成")
 
