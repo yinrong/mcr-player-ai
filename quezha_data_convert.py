@@ -79,7 +79,7 @@ if __name__ == '__main__':
         },
         # 添加更多的动作数据
     ]
-    action_lists = get_action(id=10001)
+    action_lists = get_action(id=21415)
     hand_inputs, meld_inputs, targets = prepare_data(action_lists)
     print(hand_inputs)
     print(meld_inputs)

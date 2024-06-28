@@ -123,7 +123,7 @@ def get_action(id)->list:
             elif offer_id == 2:
                 players_fulu[player].append([hands_pair[0], last_discard, hands_pair[1]])
             elif offer_id == 3:
-                players_fulu[player].append(hands_pair+last_discard)
+                players_fulu[player].append(hands_pair+[last_discard])
         elif action_type==5:
             tile = get_pack_tile(action_detail)
             if is_add_kong(action_detail):
