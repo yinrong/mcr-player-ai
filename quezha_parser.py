@@ -1,5 +1,6 @@
 from record import read_record
 from copy import deepcopy
+from common import custom_pretty_print
 
 TILES = ('1m','2m','3m','4m','5m','6m','7m','8m','9m','1s','2s',
          '3s','4s','5s','6s','7s','8s','9s','1p','2p','3p','4p',
@@ -45,7 +46,7 @@ def get_action(id)->list:
     walls = mahjong_record['script']['w']
     dice = mahjong_record['script']['d']
     actions = mahjong_record['script']['a']
-    start_id = (36*((4-(dice[0]+dice[1]-1)%4)%4) + 2*(dice[0]+dice[1]+dice[2]+dice[3])) % 143
+    start_id = (36*((4-(dice[0]+dice[1]-1)%4)%4) + 2*(dice[0]+dice[1]+dice[2]+dice[3])) % 144
     # initial tiles 
     walls = walls[start_id:] + walls[:start_id]
     players = {0: [], 1: [], 2: [], 3: []}
@@ -74,8 +75,13 @@ def get_action(id)->list:
             draw = get_hi(action_detail)
             discard = get_lo(action_detail)
             players[player].append(draw)
+            if not discard in players[player]:
+                print(f"{players[player]}, discard:{discard}, draw:{draw}")
+                print(dice)
+                custom_pretty_print(mahjong_record)
             players[player].remove(discard)
             huapai[player]+=1
+            last_draw = draw
         elif action_type==2:
             discard = get_lo(action_detail)
             is_hand_discard = bool(get_hi(action_detail))
@@ -85,12 +91,16 @@ def get_action(id)->list:
                 "player": player,
                 "paihe": deepcopy(paihe),
                 "fulu": deepcopy(players_fulu),
-                "is_hand_discard":is_hand_discard_dict,
+                "is_hand_discard":deepcopy(is_hand_discard_dict),
                 "hands":deepcopy(players[player]),
                 "discard":discard,
             }
             action_list.append(state_dict)
             paihe[player].append(discard)
+            if not discard in players[player]:
+                print(f"{players_fulu[player]}, {players[player]}, discard:{discard}")
+                print(f"a{action}")
+                custom_pretty_print(mahjong_record, max_line_length=500)
             players[player].remove(discard)
             last_discard = discard
         elif action_type==3:
@@ -109,17 +119,22 @@ def get_action(id)->list:
                 players[player].remove(middle)
                 players_fulu[player].append((upper, lower, middle))
         elif action_type==4:
+            if action_detail == 0:
+                continue # 被和牌过
             offer_id = get_offer(action_detail)
             lower = get_pack_tile(action_detail)
             count = 0
             hands_pair = []
+            players[player].sort()
             for tile in players[player]:
-                if lower&0xFC==tile&0xFC:
+                if lower&0xFC is tile&0xFC:
                     hands_pair.append(tile)
-                    players[player].remove(tile)
                     count += 1
                 if count == 2:
                     break
+            for tile in hands_pair:
+                players[player].remove(tile)
+            assert len(hands_pair) == 2, f"{hands_pair} are like this, {players[player]}, {lower}, {last_discard}, {action}"
             if offer_id == 1:
                 players_fulu[player].append([last_discard]+hands_pair)
             elif offer_id == 2:
@@ -127,27 +142,41 @@ def get_action(id)->list:
             elif offer_id == 3:
                 players_fulu[player].append(hands_pair+[last_discard])
         elif action_type==5:
+            if action_detail == 0:
+                continue
             tile = get_pack_tile(action_detail)
             if is_add_kong(action_detail):
+                add_kong_tile = None
+                for tile_i in players[player]:
+                    if tile_i&0xFC == tile&0xFC:
+                        add_kong_tile = tile_i
+                        break
                 for fulu in players_fulu[player]:
                     if isinstance(fulu, list) and fulu[0]&0xFC==tile&0xFC:
-                        fulu.append(last_draw)
-                        players[player].remove(last_draw)
+                        fulu.append(add_kong_tile)
+                        players[player].remove(add_kong_tile)
                         break
             else:
                 offer_id = get_offer(action_detail)
+                count = 0
                 if offer_id:
                     players_fulu[player].append(tuple(range(tile, tile+4)))
-                    players[player].remove(last_draw)
+                    for tile_i in players[player]:
+                        if tile_i&0xFC == tile&0xFC:
+                            players[player].remove(tile_i)
+                            count += 1
+                        if count == 1:
+                            break
+                    assert count == 1, f"{action}, count:{count}, {custom_pretty_print(mahjong_record)}, {custom_pretty_print(actions, max_line_length=300)}"
                 else:
                     players_fulu[player].append(list(range(tile, tile+4)))
-                count = 0
-                for hand in players[player]:
-                    if hand&0xFC == tile&0xFC:
-                        players[player].remove(hand)
-                        count += 1
-                    if count==3:
-                        break
+                    count = 0
+                    for hand in players[player]:
+                        if hand&0xFC == tile&0xFC:
+                            players[player].remove(hand)
+                            count += 1
+                        if count==3:
+                            break
         elif action_type==6:
             ...
         elif action_type==7:

@@ -3,7 +3,7 @@ import os
 from record import read_record
 from quezha_parser import get_action
 from tqdm import tqdm
-from ai.quezha_parser import get_action
+from quezha_parser import get_action
 import pickle
 
 # 更新手牌编码函数
@@ -82,6 +82,7 @@ def load_checkpoint():
 if __name__ == '__main__':
     # 尝试加载上次的进度
     data, id = load_checkpoint()
+    print(id)
     action_list = []
     checkpoint_interval = 5000
 
