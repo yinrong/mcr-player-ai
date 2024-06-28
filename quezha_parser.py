@@ -40,6 +40,8 @@ def get_action(id)->list:
     """
     action_list = []
     mahjong_record = read_record(id)
+    if mahjong_record is None:
+        return None
     walls = mahjong_record['script']['w']
     dice = mahjong_record['script']['d']
     actions = mahjong_record['script']['a']

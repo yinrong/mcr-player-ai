@@ -3,13 +3,13 @@ from common import *
 import sqlite3
 import json
 
+conn = sqlite3.connect(db_file)
+cursor = conn.cursor()
 def read_record(record_id):
-    conn = sqlite3.connect(db_file)
-    cursor = conn.cursor()
     cursor.execute('SELECT data FROM records WHERE id = ?', (record_id,))
     row = cursor.fetchone()
-    conn.close()
     return json.loads(row[0]) if row else None
+# conn.close()
 
 def main():
     # 指定要读取的ID

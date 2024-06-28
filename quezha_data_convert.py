@@ -1,11 +1,10 @@
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from collections import deque
+from common import *
+import os
 from record import read_record
 from quezha_parser import get_action
+from tqdm import tqdm
+from ai.quezha_parser import get_action
+import pickle
 
 # 更新手牌编码函数
 def encode_hand(hands):
@@ -45,7 +44,6 @@ def parse_action_list(action_list):
 
     return states, actions
 
-
 # 数据准备函数
 def prepare_data(action_list):
     states, actions = parse_action_list(action_list)
@@ -63,24 +61,45 @@ def prepare_data(action_list):
     meld_inputs = torch.tensor(meld_inputs, dtype=torch.long)
     targets = torch.tensor(targets, dtype=torch.long)
 
-    return hand_inputs, meld_inputs, targets
+    return meld_inputs, hand_inputs, targets
+
+# 保存数据到文件
+def save_data(data, id):
+    with open(f'data_checkpoint_{id}.pkl', 'wb') as f:
+        pickle.dump(data, f)
+
+# 加载上次保存的进度
+def load_checkpoint():
+    checkpoints = [f for f in os.listdir() if f.startswith('data_checkpoint_') and f.endswith('.pkl')]
+    if not checkpoints:
+        return [], id_start
+    latest_checkpoint = max(checkpoints, key=os.path.getctime)
+    with open(latest_checkpoint, 'rb') as f:
+        data = pickle.load(f)
+    last_id = int(latest_checkpoint.split('_')[2].split('.')[0])
+    return data, last_id + 1
 
 if __name__ == '__main__':
-    # 使用示例
-    action_list = [
-        {
-            'action_type': 'discard',
-            'player': 0,
-            'paihe': {0: [], 1: [], 2: [], 3: []},
-            'fulu': {0: [], 1: [], 2: [], 3: []},
-            'is_hand_discard': {0: [True, True, True, True, True, True, True, False, False], 1: [True, False, False, True, False, False, False, True, False], 2: [True, True, True, True, True, False, False], 3: [True, True, True, True, True, True, False, False]},
-            'hands': [66, 26, 86, 120, 20, 132, 72, 12, 110, 8, 79, 111, 124, 28],
-            'discard': 120
-        },
-        # 添加更多的动作数据
-    ]
-    action_lists = get_action(id=21415)
-    hand_inputs, meld_inputs, targets = prepare_data(action_lists)
-    print(hand_inputs)
-    print(meld_inputs)
-    print(targets)
+    # 尝试加载上次的进度
+    data, id = load_checkpoint()
+    action_list = []
+    checkpoint_interval = 5000
+
+    with tqdm(total=id_end - id_start, initial=id - id_start) as pbar:
+        while id <= id_end:
+            while True: #  as a block
+                r = get_action(id)
+                if r is None:
+                    break
+                d = prepare_data(r)
+                data.append(d)
+                if len(data) % checkpoint_interval == 0:
+                    save_data(data, id)
+                    data = []  # 清空已保存的数据
+                break
+            id += 1
+            pbar.update(1)
+        
+        # 保存最后剩余的数据
+        if data:
+            save_data(data, id)

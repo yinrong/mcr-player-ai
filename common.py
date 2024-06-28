@@ -12,7 +12,7 @@ id_start = 10001
 id_end = 114466
 
 # 定义SQLite数据库文件路径 
-db_file = r'/root/WORK/libin/database/mj_quezha.db'
+db_file = 'mj_quezha.db'
 
 
 def custom_pretty_print(obj, indent=0):
