@@ -1,9 +1,6 @@
 from common import *
 from model import *
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from collections import deque
 from ai.env import SimplifiedMahjongEnv, num_actions
 import mj
 import os

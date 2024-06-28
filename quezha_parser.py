@@ -175,10 +175,24 @@ def formatted_print(action_list, hands_id=None):
 
 def main ():
     ''' format v1:
+    model input:
+
+    n_fulu01
+    type_fulu01
+    n_fulu02
+    type_fulu02
+    ...
+    ...
+    n_fulu34
+    type_fulu34
+
+
     n_card01
     n_card02
     ...
     n_card34
+
+    model output:
     discard_card_id
     discard_score = player_score + game_score + hand_score
     '''
@@ -188,3 +202,5 @@ def main ():
 
 if __name__ == '__main__':
     main()
+    action_list = get_action(10001)
+    print(action_list[0])

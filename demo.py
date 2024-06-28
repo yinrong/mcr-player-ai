@@ -2,7 +2,7 @@ from common import *
 from model import FCQNetwork
 from ai.env import SimplifiedMahjongEnv
 from mjutil import renderSimple
-from train import input_shape, num_actions, hidden_size
+from ai.train_rf import input_shape, num_actions, hidden_size
 
 # 加载模型
 model = torch.load("model.pth")

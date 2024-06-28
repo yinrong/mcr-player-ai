@@ -1,7 +1,10 @@
 import random
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from functional import seq
+from collections import deque
 
 
 # 设置起始和结束ID
@@ -9,7 +12,7 @@ id_start = 10001
 id_end = 114466
 
 # 定义SQLite数据库文件路径
-db_file = r'data_records.db'
+db_file = r'mj_quezha.db'
 
 
 def custom_pretty_print(obj, indent=0):
