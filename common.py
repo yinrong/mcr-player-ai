@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from functional import seq
+# from functional import seq
 from collections import deque
 
 
@@ -11,8 +11,8 @@ from collections import deque
 id_start = 10001
 id_end = 114466
 
-# 定义SQLite数据库文件路径
-db_file = r'mj_quezha.db'
+# 定义SQLite数据库文件路径 
+db_file = r'/root/WORK/libin/database/mj_quezha.db'
 
 
 def custom_pretty_print(obj, indent=0):

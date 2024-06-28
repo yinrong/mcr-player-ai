@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from collections import deque
+from record import read_record
+from quezha_parser import get_action
 
 # 更新手牌编码函数
 def encode_hand(hands):
@@ -77,8 +79,8 @@ if __name__ == '__main__':
         },
         # 添加更多的动作数据
     ]
-
-    hand_inputs, meld_inputs, targets = prepare_data(action_list)
+    action_lists = get_action(id=10001)
+    hand_inputs, meld_inputs, targets = prepare_data(action_lists)
     print(hand_inputs)
     print(meld_inputs)
     print(targets)
