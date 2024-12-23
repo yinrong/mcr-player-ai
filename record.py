@@ -25,4 +25,7 @@ def main():
         print(f"Record with ID {record_id} not found.")
 
 if __name__ == "__main__":
-    main()
+    #main()
+    cursor.execute('SELECT * FROM records order by id desc limit 1')
+    row = cursor.fetchone()
+    print(row)

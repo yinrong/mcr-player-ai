@@ -1,7 +1,7 @@
 from common import *
 from model import *
 import torch.optim as optim
-from ai.env import SimplifiedMahjongEnv, num_actions
+from env import SimplifiedMahjongEnv, num_actions
 import mj
 import os
 import pickle

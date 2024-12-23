@@ -1,9 +1,8 @@
 from common import *
 import os
 from record import read_record
-from quezha_parser import get_action
 from tqdm import tqdm
-from ai.quezha_parser import get_action
+from quezha_parser import get_player_discard_sequence
 import pickle
 
 # 更新手牌编码函数
@@ -24,44 +23,51 @@ def encode_melds(fulu):
     return meld_array
 
 # 数据解析函数
-def parse_action_list(action_list):
+def parse_action_list(l):
     states = []
     actions = []
-    for action in action_list:
+    weights = []
+    for action in l['steps']:
         player = action['player']
-        fulu = action['fulu'][player]
         hands = action['hands']
         discard = action['discard']
 
         # 编码手牌和副露
         hand_array = encode_hand(hands)
-        meld_array = encode_melds(fulu)
+        meld_array = encode_melds(action['fulu'])
 
         # 组合手牌和副露编码
         state = (hand_array, meld_array)
         states.append(state)
         actions.append((discard - 1) % 34)  # 将牌编号转为索引
 
-    return states, actions
+        if player == l['winner_id']:
+            weights.append(5)
+        else:
+            weights.append(1)
+
+    return weights, states, actions
 
 # 数据准备函数
-def prepare_data(action_list):
-    states, actions = parse_action_list(action_list)
+def prepare_data(l):
+    
+    weights, states, actions = parse_action_list(l)
     hand_inputs = []
     meld_inputs = []
     targets = []
 
-    for state, action in zip(states, actions):
+    for weight, state, action in zip(weights, states, actions):
         hand_array, meld_array = state
         hand_inputs.append(hand_array)
         meld_inputs.append(meld_array)
         targets.append(action)
+    
 
     hand_inputs = torch.tensor(hand_inputs, dtype=torch.float32)
     meld_inputs = torch.tensor(meld_inputs, dtype=torch.long)
     targets = torch.tensor(targets, dtype=torch.long)
 
-    return meld_inputs, hand_inputs, targets
+    return weights, meld_inputs, hand_inputs, targets
 
 # 保存数据到文件
 def save_data(data, id):
@@ -88,7 +94,7 @@ if __name__ == '__main__':
     with tqdm(total=id_end - id_start, initial=id - id_start) as pbar:
         while id <= id_end:
             while True: #  as a block
-                r = get_action(id)
+                r = get_player_discard_sequence(id)
                 if r is None:
                     break
                 d = prepare_data(r)
