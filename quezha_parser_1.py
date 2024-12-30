@@ -1,6 +1,7 @@
 from copy import deepcopy
 from functional import seq
-from tqdm import tqdm
+import numpy as np
+from common import *
 from record import read_record
 
 TILES = (
@@ -20,6 +21,8 @@ def get_tiles(tile_id: int) -> str:
     return TILES[tile_id//4]
 
 def getTileTypeId(tile_id: int):
+    return tile_id//4 + 1
+def getTileTypeIdPair(tile_id: int):
     """
     将 0~135 的 TileId 转换为 (suit, rank) 的二元组。
     suit 取值范围: 1~5 (1:万, 2:条, 3:饼, 4:风, 5:箭)
@@ -283,10 +286,145 @@ def _getOneGame(id)->list:
         actions=actions,
     )
 
-def getAllGames(to=114466):
-    l = (seq(tqdm(range(10001, to), desc="Processing Records"))
+
+def convertTileTypeId (a):
+    dictConvertValue(a, 'paihe', getTileTypeId)
+    dictConvertValue(a, 'fulu', getTileTypeId)
+    dictConvertValue(a, 'hands', getTileTypeId)
+    dictConvertValue(a, 'discard', getTileTypeId)
+    return a
+
+def convertTrainData(rank_info, games):
+    """
+    将原始动作数据(含paihe, fulu, hands, discard等)转换为可训练的输入、标签、权重。
+    
+    :param actions: list or iterable of dict，每个dict包含与训练相关的字段，例如：
+        {
+            'player_name': 'xxxx',
+            'player_id': 111111,
+            "action_type": "discard",
+            "player": 1,
+            "paihe": { "0": [120, 124, 132, ...], "1": [...], ... },
+            "fulu": { "0": [(83, 72, 79)], ... },
+            "is_hand_discard": { "0": [true, ...], ... },
+            "hands": [51, 2, 48, ...],
+            "discard": 59,
+        }
+    :return: list of tuples: [ (input_encoded, label_encoded, weight), ... ]
+             或根据需求也可以拆分成 X, y, sample_weights
+    """
+    data_for_training = []
+    for game in games:
+        for action in game['actions']:
+            # 1) 获取当前玩家的 rank_info
+            #    注意：示例中 player_id 形如 111111，需要和 rank_info 中的 key(形如 '10014')对应。
+            #    本示例假设action中包含rank_info，且player_id可以在rank_info字典里找到（真实情况需自己映射）。
+            player_id_str = action['player_id']
+
+            # 2) 计算权重：排名越靠前，权重越高(此处仅示例)
+            #    下面的例子假定 rank=1 => weight=1.0, rank=2 => weight=0.75, rank=3 => weight=0.5, rank=4 => weight=0.25
+            weight = len(rank_info) - rank_info[player_id_str]['win_rate']
+            if rank_info[player_id_str]['win_count'] < 100:
+                weight *= rank_info[player_id_str]['win_count'] // 10 * 0.1
+            
+            # 3) 编码输入：将paihe、fulu、hands进行整合
+            paihe = action.get('paihe', {})
+            fulu = action.get('fulu', {})
+            hands = action.get('hands', [])
+            
+            # 3.1) 外部函数，将paihe, fulu, hands转成统一格式(二维/三维张量等)
+            #      比如可以对每一张牌调用getTileTypeId(...)再汇总编码
+            #      下面仅作示例，使用假函数 encodeTableState(...)
+            # 外部函数，未来扩展
+            input_encoded = encodeTableState(paihe, fulu, hands)
+            
+            # 4) 编码标签：discard那张牌
+            discard_tile = action.get('discard', None)
+            # 外部函数，未来扩展
+            label_encoded = getTileTypeId(discard_tile)
+            
+            # 5) 将(input, label, weight)打包
+            data_for_training.append((input_encoded, label_encoded, weight))
+    
+    return data_for_training
+def encodeTableState(paihe, fulu, hands):
+    """
+    将当前牌局信息(paihe、fulu、hands等)编码为一个固定形状的张量(示例: (10, 10, 1)).
+    
+    :param paihe: dict, e.g. { "0":[tileId, ...], "1":[...], ... } ，各玩家弃牌
+    :param fulu: dict, e.g. { "0":[(tileId1, tileId2, tileId3), ...], ... } ，副露(吃/碰/杠)
+    :param hands: list, e.g. [tileId, tileId, ...] ，自己的手牌
+    :return: np.ndarray, shape=(10, 10, 1) 的编码结果(示例)
+    """
+    # 这里只是一个示例，实际可根据麻将牌数量及CNN需求设计更合适的维度。
+    # 例如 (5, 9, 4) 或 (34, 4) 或 (10,10) 等。
+    # 这里做一个10x10的二维数组，再扩维至(10,10,1).
+    
+    state = np.zeros((10, 10), dtype=np.float32)
+    
+    # 1) 编码自己的手牌
+    for tile_id in hands:
+        suit, rank = getTileTypeId(tile_id)
+        if suit < 10 and rank < 10:
+            state[suit, rank] += 1.0  # 自己手牌可计为+1
+    
+    # 2) 编码所有玩家的弃牌(paihe)
+    #    示例：把每张弃牌记为+2，用于和手牌做区分
+    for player_idx, discard_list in paihe.items():
+        for tile_id in discard_list:
+            suit, rank = getTileTypeId(tile_id)
+            if suit < 10 and rank < 10:
+                state[suit, rank] += 2.0
+    
+    # 3) 编码副露(fulu)，示例记为+1.5
+    #    每个元素可能是一个tuple，例如 (83, 72, 79) 代表吃/碰/杠的三张牌
+    for player_idx, fulu_combos in fulu.items():
+        for combo in fulu_combos:
+            for tile_id in combo:
+                suit, rank = getTileTypeId(tile_id)
+                if suit < 10 and rank < 10:
+                    state[suit, rank] += 1.5
+    
+    # 扩展到(10,10,1)
+    return state.reshape((10, 10, 1))
+
+
+def getData(begin=10001, end=114466):
+    games = (seq(range(begin, end + 1))
         .map(lambda e: getOneGame(e))
         .filter(lambda e: e)
+        .to_list()
+    )
+    rank_info = rankPlayers(games)
+    actions = seq(games).flat_map(lambda e: e['actions'])
+    def convertRelative (a):
+        player = a['player']  # 当前玩家编号
+        # 初始化目标 b
+        b = {
+            'paihe': {},
+            'fulu': {},
+            'hands': a['hands'],     # 直接复制
+            'discard': a['discard'], # 直接复制
+            'weight': len(games) - rank_info[a['player_id']]['rank'],
+        }
+        # 重排
+        for i in range(4):
+            # 新的 i => a['paihe'][(player + i) % 4]
+            old_index = (player + i) % 4
+            b['paihe'][i] = a['paihe'][old_index]
+            b['fulu'][i] = a['fulu'][old_index]
+        return b
+    def getWeight (e):
+        i = rank_info[e['player_id']]
+        weight = len(rank_info) - i['win_rate']
+        if i['win_count'] < 100:
+            weight *= i['win_count'] // 10 * 0.1
+        e['weight'] = weight
+        return e
+    l = (seq(actions)
+        .map(convertTileTypeId)
+        .map(getWeight)
+        .map(convertRelative)
         .to_list()
     )
     return l
@@ -311,18 +449,23 @@ def rankPlayers(games):
     ret = (seq(rate.items())
         .sorted(lambda e: e[1], reverse=True)
         .enumerate(start=1)
-        .map(lambda e: (str(e[1][0]), dict(win_rate=e[1][1], rank=e[0])))
+        .map(lambda e: (e[1][0], dict(
+            win_rate=e[1][1],
+            rank=e[0],
+            win_count=d['win_count'][e[1][0]],
+            )))
         .to_dict()
     )
-    print(ret)
+    #print(ret)
     return ret
+
+
+
+import torch
 
 if __name__ == '__main__':
     for e in getOneGame(10001):
         print(e)
         break
-    games = getAllGames(to=10010)
-    print(games[0].keys())
-    print(games[0]['actions'][-1])
-    r = rankPlayers(games)
-    print(r)
+    data = getData(end=10010)
+    print(data[0])

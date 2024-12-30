@@ -138,3 +138,44 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+from common_file_cache import file_cache
+
+
+def _dictConvertValue(obj, convertFunc):
+    """
+    对字典中指定 `key` 对应的 `value` 调用转换函数，而不修改 `key`。
+    
+    :param data: dict or其他嵌套数据结构（list, dict, tuple, set 等）
+    :param target_key: 要匹配的目标 key
+    :param transform_func: 转换函数，仅对 target_key 的 value 应用
+    :return: 转换后的数据结构
+    """
+    if isinstance(obj, dict):
+        # 如果是字典，检查每个键值对
+        return {
+            key: _dictConvertValue(value, convertFunc)
+            for key, value in obj.items()
+        }
+    elif isinstance(obj, list):
+        # 如果是列表，递归处理每个元素
+        return [_dictConvertValue(item, convertFunc) for item in obj]
+    elif isinstance(obj, tuple):
+        # 如果是元组，递归处理每个元素，并保持元组类型
+        return tuple(_dictConvertValue(item, convertFunc) for item in obj)
+    else:
+        # 其他类型直接返回
+        return convertFunc(obj)
+def dictConvertValue(container, target_key, convertFunc):
+    """
+    对字典中指定 `key` 对应的 `value` 调用转换函数，而不修改 `key`。
+    
+    :param data: dict or其他嵌套数据结构（list, dict, tuple, set 等）
+    :param target_key: 要匹配的目标 key
+    :param transform_func: 转换函数，仅对 target_key 的 value 应用
+    :return: 转换后的数据结构
+    """
+    obj = container[target_key]
+    container[target_key] = _dictConvertValue(obj, convertFunc)
+    return container

@@ -1,140 +1,6 @@
+import pickle
 from common import *
-from quezha_parser_1 import getAllGames, rankPlayers
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-
-
-def convertTrainData(rank_info, games):
-    """
-    将原始动作数据(含paihe, fulu, hands, discard等)转换为可训练的输入、标签、权重。
-    
-    :param actions: list or iterable of dict，每个dict包含与训练相关的字段，例如：
-        {
-            'player_name': 'xxxx',
-            'player_id': 111111,
-            "action_type": "discard",
-            "player": 1,
-            "paihe": { "0": [120, 124, 132, ...], "1": [...], ... },
-            "fulu": { "0": [(83, 72, 79)], ... },
-            "is_hand_discard": { "0": [true, ...], ... },
-            "hands": [51, 2, 48, ...],
-            "discard": 59,
-            "rank_info": {
-                '10014': {'win_rate': 0.7777, 'rank': 1}, 
-                '10056': {'win_rate': 0.2222, 'rank': 2}, 
-                ...
-            }
-        }
-    :return: list of tuples: [ (input_encoded, label_encoded, weight), ... ]
-             或根据需求也可以拆分成 X, y, sample_weights
-    """
-    data_for_training = []
-    for game in games:
-        for action in game['actions']:
-            # 1) 获取当前玩家的 rank_info
-            #    注意：示例中 player_id 形如 111111，需要和 rank_info 中的 key(形如 '10014')对应。
-            #    本示例假设action中包含rank_info，且player_id可以在rank_info字典里找到（真实情况需自己映射）。
-            player_id_str = str(action['player_id'])
-            rank_info = action.get('rank_info', {})
-            player_rank = rank_info.get(player_id_str, {}).get('rank', 4)  # 缺省rank=4
-
-            # 2) 计算权重：排名越靠前，权重越高(此处仅示例)
-            #    下面的例子假定 rank=1 => weight=1.0, rank=2 => weight=0.75, rank=3 => weight=0.5, rank=4 => weight=0.25
-            weight = (5 - player_rank) * 0.25
-            
-            # 3) 编码输入：将paihe、fulu、hands进行整合
-            paihe = action.get('paihe', {})
-            fulu = action.get('fulu', {})
-            hands = action.get('hands', [])
-            
-            # 3.1) 外部函数，将paihe, fulu, hands转成统一格式(二维/三维张量等)
-            #      比如可以对每一张牌调用getTileTypeId(...)再汇总编码
-            #      下面仅作示例，使用假函数 encodeTableState(...)
-            # 外部函数，未来扩展
-            input_encoded = encodeTableState(paihe, fulu, hands)
-            
-            # 4) 编码标签：discard那张牌
-            discard_tile = action.get('discard', None)
-            # 外部函数，未来扩展
-            label_encoded = encodeDiscardTile(discard_tile)
-            
-            # 5) 将(input, label, weight)打包
-            data_for_training.append((input_encoded, label_encoded, weight))
-    
-    return data_for_training
-
-
-# 如果已经存在getTileTypeId(tile_id)这样可复用的外部函数，可在此直接调用；
-# 这里示例一个本地简易版本进行演示。
-def _getSuitAndRank(tile_id):
-    """
-    临时示例函数: 将0~135的TileId转换为(suit, rank)。
-    suit 范围: 0~(理论最多)；rank 范围: 0~(理论最多)
-    具体分配规则、花色/牌数等可根据实际麻将规则调整。
-    """
-    tile_type = tile_id // 4  # tile_type范围 0~33，共34种牌
-    suit = tile_type // 9     # suit范围示例: 0~3+ (风/箭要自己划分)
-    rank = tile_type % 9      # rank范围示例: 0~8（适用于万/条/饼9张）
-    return suit, rank
-
-
-def encodeTableState(paihe, fulu, hands):
-    """
-    将当前牌局信息(paihe、fulu、hands等)编码为一个固定形状的张量(示例: (10, 10, 1)).
-    
-    :param paihe: dict, e.g. { "0":[tileId, ...], "1":[...], ... } ，各玩家弃牌
-    :param fulu: dict, e.g. { "0":[(tileId1, tileId2, tileId3), ...], ... } ，副露(吃/碰/杠)
-    :param hands: list, e.g. [tileId, tileId, ...] ，自己的手牌
-    :return: np.ndarray, shape=(10, 10, 1) 的编码结果(示例)
-    """
-    # 这里只是一个示例，实际可根据麻将牌数量及CNN需求设计更合适的维度。
-    # 例如 (5, 9, 4) 或 (34, 4) 或 (10,10) 等。
-    # 这里做一个10x10的二维数组，再扩维至(10,10,1).
-    
-    state = np.zeros((10, 10), dtype=np.float32)
-    
-    # 1) 编码自己的手牌
-    for tile_id in hands:
-        suit, rank = _getSuitAndRank(tile_id)
-        if suit < 10 and rank < 10:
-            state[suit, rank] += 1.0  # 自己手牌可计为+1
-    
-    # 2) 编码所有玩家的弃牌(paihe)
-    #    示例：把每张弃牌记为+2，用于和手牌做区分
-    for player_idx, discard_list in paihe.items():
-        for tile_id in discard_list:
-            suit, rank = _getSuitAndRank(tile_id)
-            if suit < 10 and rank < 10:
-                state[suit, rank] += 2.0
-    
-    # 3) 编码副露(fulu)，示例记为+1.5
-    #    每个元素可能是一个tuple，例如 (83, 72, 79) 代表吃/碰/杠的三张牌
-    for player_idx, fulu_combos in fulu.items():
-        for combo in fulu_combos:
-            for tile_id in combo:
-                suit, rank = _getSuitAndRank(tile_id)
-                if suit < 10 and rank < 10:
-                    state[suit, rank] += 1.5
-    
-    # 扩展到(10,10,1)
-    return state.reshape((10, 10, 1))
-
-
-def encodeDiscardTile(tile_id):
-    """
-    将需要丢弃的那张牌编码为模型可训练/预测的标签格式。
-    示例：使用 one-hot 编码(长度136)，对应所有TileId范围 [0, 135]。
-    
-    :param tile_id: int or None，需要丢弃的牌ID (0~135)
-    :return: np.ndarray, shape=(136,) 的one-hot向量
-    """
-    one_hot = np.zeros(136, dtype=np.float32)
-    if tile_id is not None and 0 <= tile_id < 136:
-        one_hot[tile_id] = 1.0
-    return one_hot
-
+from quezha_parser_1 import getData
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -142,23 +8,87 @@ import torch.nn.functional as F
 import random
 
 class Model(nn.Module):
-    def __init__(self):
+
+    """
+    同时使用1D-CNN对 x_tiles 提取"静态局面"特征,
+    用RNN对 history_seq 提取"时序弃牌"特征,
+    融合后输出对 [0..33] 每种牌的打牌倾向.
+    """
+    def __init__(
+        self,
+        in_channels=3,          # 0:我的手牌,1:我的副露,2:他人副露
+        cnn_hidden=32,
+        cnn_layers=2,
+        
+        num_tile_types=34,      # 牌种类(输出分类数)
+        
+        rnn_embed_dim=32,       # history_seq中每张牌embedding维度
+        rnn_hidden_dim=64,
+        rnn_num_layers=1,
+        
+        hidden_dim=128
+    ):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3)  # => (N,32,8,8)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3) # => (N,64,6,6)
-        self.fc1 = nn.Linear(64*6*6, 128)
-        self.fc2 = nn.Linear(128, 136)  # 对应牌ID(0~135)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))   # => (N,32,8,8)
-        x = F.relu(self.conv2(x))   # => (N,64,6,6)
-
-        # 如果遇到非连续报错，可先 x = x.contiguous()
-        x = x.reshape(x.shape[0], -1)  # flatten => (N,2304)
-
-        x = F.relu(self.fc1(x))     # => (N,128)
-        x = self.fc2(x)             # => (N,136)
-        return x
+        
+        # ---- 1D-CNN for x_tiles ----
+        cnn_modules = []
+        ch_in = in_channels
+        for i in range(cnn_layers):
+            ch_out = cnn_hidden * (2**i)
+            cnn_modules.append(nn.Conv1d(ch_in, ch_out, kernel_size=3, padding=1))
+            cnn_modules.append(nn.ReLU())
+            ch_in = ch_out
+        self.cnn_1d = nn.Sequential(*cnn_modules)
+        self.cnn_out_dim = ch_out
+        
+        # 全局池化
+        self.cnn_pool = nn.AdaptiveAvgPool1d(1)  # -> shape [B, cnn_out_dim, 1]
+        
+        # ---- RNN for history_seq ----
+        self.tile_embedding = nn.Embedding(num_tile_types, rnn_embed_dim)
+        self.rnn = nn.GRU(
+            input_size=rnn_embed_dim,
+            hidden_size=rnn_hidden_dim,
+            num_layers=rnn_num_layers,
+            batch_first=True,
+            bidirectional=True
+        )
+        self.rnn_out_dim = rnn_hidden_dim * 2  # 双向
+        
+        # ---- Fusion & Output ----
+        # 融合: [cnn_out_dim + rnn_out_dim] -> hidden_dim -> num_tile_types
+        fusion_dim = self.cnn_out_dim + self.rnn_out_dim
+        self.fusion = nn.Sequential(
+            nn.Linear(fusion_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_tile_types)
+        )
+        
+    def forward(self, x_tiles, history_seq):
+        """
+        x_tiles: [B, in_channels, 34]
+        history_seq: [B, seq_len] (各值 in [0..num_tile_types-1])
+        
+        return: logits, shape=[B, num_tile_types]
+        """
+        B = x_tiles.size(0)
+        
+        # 1) CNN for x_tiles
+        x_cnn = self.cnn_1d(x_tiles)      # -> [B, out_ch, 34]
+        x_cnn = self.cnn_pool(x_cnn)      # -> [B, out_ch, 1]
+        x_cnn = x_cnn.squeeze(-1)         # -> [B, out_ch]
+        
+        # 2) RNN for history_seq
+        emb = self.tile_embedding(history_seq)  # [B, seq_len, rnn_embed_dim]
+        rnn_out, _ = self.rnn(emb)              # [B, seq_len, rnn_hidden_dim*2]
+        # 做平均池化(或取最后时刻)
+        x_rnn = rnn_out.mean(dim=1)             # -> [B, rnn_out_dim]
+        
+        # 3) Fusion
+        fused = torch.cat([x_cnn, x_rnn], dim=-1)  # [B, fusion_dim]
+        logits = self.fusion(fused)               # [B, num_tile_types]
+        
+        return logits
     
     def predict(self, input_data):
         """
@@ -211,17 +141,16 @@ class Model(nn.Module):
 
         with torch.no_grad():
             for i in range(0, len(X), batch_size):
-                batch_X = X[i:i+batch_size]
+                batch_X = X[0][i:i+batch_size], X[1][i:i+batch_size]
                 batch_Y = Y[i:i+batch_size]
                 batch_W = W[i:i+batch_size]
 
-                outputs = self.forward(batch_X)          # => (batch_size,136)
-                batch_Y_class = torch.argmax(batch_Y, 1) # => (batch_size,)
+                outputs = self.forward(*batch_X)          # => (batch_size,136)
 
-                loss_per_sample = criterion(outputs, batch_Y_class)  # => (batch_size,)
+                loss_per_sample = criterion(outputs, batch_Y)  # => (batch_size,)
                 loss_weighted = (loss_per_sample * batch_W).sum()     # 小技巧：先 sum，不取 mean
                 total_loss += loss_weighted.item()
-                total_samples += batch_X.size(0)
+                total_samples += len(batch_Y)
 
         return total_loss / total_samples if total_samples > 0 else 0.0
     
@@ -246,58 +175,58 @@ class Model(nn.Module):
         :param min_delta:  判断是否改进的阈值
         """
 
+        TrainDataset = getDatasetClass('discard_model_train_data.pkl')
+        train_dataset = TrainDataset()
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+
+        ValidDataset = getDatasetClass('discard_model_valid_data.pkl')
+        val_dataset = ValidDataset()
+        val_loader = DataLoader(val_dataset, batch_size=len(valid_data), shuffle=False, num_workers=8)
+
+        for (batch_X, batch_Y, batch_W) in val_loader:
+            X_val = batch_X
+            Y_val = batch_Y
+            W_val = batch_W
+
         optimizer = optim.Adam(self.parameters(), lr=1e-3)
         # 注意: 使用 reduction='none'，以便后面计算 sample_weight
         criterion = nn.CrossEntropyLoss(reduction='none')
-
-        # 1) 准备训练集 Tensor
-        X_train, Y_train, W_train = self._prepare_tensors(train_data)
-        # 2) 准备验证集 Tensor
-        X_val, Y_val, W_val = self._prepare_tensors(val_data)
 
         best_val_loss = float('inf')
         no_improvement_count = 0
 
         for epoch in range(epochs):
-            # ========== 训练阶段 ========== 
-            # 打乱训练集
-            indices = list(range(len(X_train)))
-            random.shuffle(indices)
-            X_train = X_train[indices]
-            Y_train = Y_train[indices]
-            W_train = W_train[indices]
 
             self.train()
             epoch_loss_sum = 0.0
             sample_count = 0
 
-            # mini-batch
-            for i in range(0, len(X_train), batch_size):
-                batch_X = X_train[i:i+batch_size]
-                batch_Y = Y_train[i:i+batch_size]
-                batch_W = W_train[i:i+batch_size]
+            max_iter_per_epoch = 100
+            iter = 0
+            for (batch_X, batch_Y, batch_W) in train_loader:
 
                 optimizer.zero_grad()
-                outputs = self.forward(batch_X)  # => (batch_size,136)
+                outputs = self.forward(*batch_X)  # => (batch_size,136)
 
-                # batch_Y 是 one-hot => 转为 class index
-                batch_Y_class = torch.argmax(batch_Y, dim=1)  # => (batch_size,)
-
-                loss_per_sample = criterion(outputs, batch_Y_class)  # => (batch_size,)
+                loss_per_sample = criterion(outputs, batch_Y)  # => (batch_size,)
                 loss = (loss_per_sample * batch_W).mean()
 
                 loss.backward()
                 optimizer.step()
 
-                epoch_loss_sum += loss.item() * batch_X.size(0)
-                sample_count    += batch_X.size(0)
+                epoch_loss_sum += loss.item() * batch_size
+                sample_count    += batch_size
+
+                iter += 1
+                if iter >= max_iter_per_epoch:
+                    break
 
             # 训练集平均loss
             train_avg_loss = epoch_loss_sum / sample_count if sample_count>0 else 0.0
 
             # ========== 验证阶段 ==========
             val_avg_loss = self._eval_on_dataset(
-                X_val, Y_val, W_val, criterion, batch_size=batch_size
+                X_val, Y_val, W_val, criterion
             )
 
             print(f"Epoch {epoch+1}/{epochs} => "
@@ -308,6 +237,7 @@ class Model(nn.Module):
                 # 有显著改进 => 重置计数
                 best_val_loss = val_avg_loss
                 no_improvement_count = 0
+                torch.save(self, 'best_model_discard.pt')
             else:
                 # 没有显著改进
                 no_improvement_count += 1
@@ -335,23 +265,70 @@ def split_dataset(games, val_ratio=0.2):
 
 
 
-if __name__ == '__main__':
-    #games = getAllGames()
-    #games = getAllGames(to=10010)
-    games = getAllGames()
-    train_games, test_games = split_dataset(games)
-    rank_info = rankPlayers(games)
+import torch
+from torch.utils.data import Dataset, DataLoader
+import random
 
-    # 1) 转换训练数据
-    train_data = convertTrainData(rank_info, train_games)
-    valid_data = convertTrainData(rank_info, test_games)
-    
+def getDatasetClass (fn):
+    with open(fn, 'rb') as f:
+        X, y, W = pickle.load(f)
+    class MyDataset(Dataset):
+        """
+        使用已有的 convertX 函数对 action_samples 做一次性转换，然后
+        在 __getitem__ 中返回 (X, Y, W)。
+
+        参数
+        ----
+        action_samples : list of dict
+            原始数据，每个元素包含 'paihe', 'fulu', 'hands', 'discard', 'weight'(可选)等键。
+        convertX : function
+            已经写好的函数, 接收 (action_samples, max_tile_index, seq_len) 返回 (x_tiles, history_seq, y)。
+            注意: 这里不重复写 convertX, 直接调用即可。
+        max_tile_index : int
+            牌面最大索引, 和 convertX 保持一致。
+        seq_len : int
+            历史记录序列长度, 和 convertX 保持一致。
+        sample_ratio : float
+            若 <1.0，则在初始化时只随机保留 sample_ratio * len(action_samples) 个样本。
+        """
+
+        def __init__(self):
+            super().__init__()
+            
+            
+            # 2) 一次性调用 convertX 做数据预处理
+            #    convertX 返回: x_tiles, history_seq, y
+            #    这里假设 x_tiles: [B, in_channels, max_tile_index+1]
+            #            history_seq: [B, seq_len]
+            #            y: [B]
+            
+            # 4) 存储到 self.xxx，方便 __getitem__ 访问
+            self.X = X
+            self.y = y
+            self.w = W
+
+        def __len__(self):
+            return int('inf')
+
+        def __getitem__(self, index):
+            index = random.randint(len(W))
+            # X 可以是一个元组，也可以拼成dict，看你模型的 forward() 需要什么格式
+            X = self.X[0][index], self.X[1][index]
+            Y = self.y[index]
+            W = self.w[index]
+            return X, Y, W
+    return MyDataset
+
+
+
+if __name__ == '__main__':
+    valid_size = 10000
+    train_data, valid_data = d[:-valid_size], d[-valid_size:]
+    print('data size:', len(train_data), len(valid_data))
     # 2) 初始化模型
     my_model = Model()
     
     # 3) 训练
     #    假设我们想训练2个epoch，每次batch大小32
-    my_model.train_model(train_data, valid_data, epochs=10000, batch_size=32)
+    my_model.train_model(train_data, valid_data, epochs=10000, batch_size=64)
     
-    # （根据需要，训练结束后可保存模型）
-    # my_model.model.save('xxx.h5')

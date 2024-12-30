@@ -2,3 +2,4 @@
 !.gitignore
 __pycache__
 mj_quezha.db
+*.pt
