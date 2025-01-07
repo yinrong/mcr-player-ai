@@ -1,5 +1,6 @@
 import random
 import torch
+from common import debugTensor
 from discard_model_data import convertX
 from mjutil import renderSimple
 from discard_model import DiscardModel  # 替换为你的模型定义文件路径
@@ -50,24 +51,20 @@ def simulate_game(model_path, seq_len=32, num_rounds=30):
             'discard': 1,
         }
 
-        # 转换输入
+        #debugTensor(hand, 'hand:')
         x,y,w = convertX([action_sample])
-
-        # 模型预测弃牌
         with torch.no_grad():
             logits = model(x)
         suggested_discard = logits.argmax(dim=-1).item()
-        print('argmax:', suggested_discard)
+        #debugTensor(suggested_discard, 'argmax:')
 
         renderSimple(i + 1, hand, suggested_discard)
 
-        # 执行弃牌
-        hand.remove(suggested_discard)
         history.append(suggested_discard)
 
 
 # 调用模拟游戏
 if __name__ == "__main__":
-    model_path = "best_model_discard_0.25.pt"  # 替换为实际模型路径
+    model_path = "discard_0.35.pt"  # 替换为实际模型路径
     torch.set_printoptions(precision=4, sci_mode=False)
     simulate_game(model_path)

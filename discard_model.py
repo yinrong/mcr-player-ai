@@ -1,4 +1,4 @@
-from common import nn, torch
+from common import debugTensor, nn, torch
 
 
 import torch
@@ -98,11 +98,9 @@ class DiscardModel(nn.Module):
 
         # ===== 应用掩码，限制输出范围 =====
         hands = x[:, 0]  # 假设第一个维度代表手牌
-        #print('hands:    ', hands[0])
+        #debugTensor(hands[0], 'hands:')
         hand_mask = self.create_hand_mask(hands)
-        #print('hand_mask:')
-        #print(hand_mask)
+        #debugTensor(hand_mask, 'hand_mask:')
         masked_logits = torch.where(hand_mask < 1, torch.tensor(1e-6, device=logits.device), logits)
-        #print('masked:')
-        #print(masked_logits)
+        #debugTensor(masked_logits, 'masked:')
         return masked_logits

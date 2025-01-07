@@ -124,19 +124,21 @@ def train_model(rank, world_size):
     optimizer = optim.Adam(
         model.parameters(),
         lr=0.004,
-        #weight_decay=0.99,
+        weight_decay=1e-6,
     )
     # 注意: 使用 reduction='none'，以便后面计算 sample_weight
     criterion = nn.CrossEntropyLoss(reduction='none')
 
+    best_val_corr = 0.20
+    no_improvement_count = 0
     for epoch in range(99999):
 
         model.train()
         epoch_loss_sum = 0.0
         sample_count = 0
 
-        max_iter_per_epoch = 30
-        iter = 0
+        max_n_trained = 240
+        n_trained = 0
         for (batch_X, batch_Y, batch_W) in train_loader:
 
             optimizer.zero_grad()
@@ -159,16 +161,14 @@ def train_model(rank, world_size):
             epoch_loss_sum += loss.item() * batch_W.sum().item()  # 恢复到总损失的数值量级
             sample_count += batch_W.sum().item()  # 样本总权重累积
 
-            iter += 1
-            if epoch ==0 or iter >= max_iter_per_epoch:
+            n_trained += len(batch_W)
+            if epoch ==0 or n_trained >= max_n_trained:
                 break
 
         # 训练集平均loss
         train_avg_loss = epoch_loss_sum / sample_count if sample_count>0 else 0.0
 
         # ========== 早停判断 ==========
-        no_improvement_count = 0
-        best_val_corr = 0.20
         save = 0
         if rank == 0:
             # ========== 验证阶段 ==========
@@ -176,8 +176,9 @@ def train_model(rank, world_size):
             if val_corr > best_val_corr:
                 best_val_corr = val_corr
                 no_improvement_count = 0
-                torch.save(model, 'best_model_discard.pt')
-                save = 1
+                if val_corr > 0.3:
+                    torch.save(model, 'best_model_discard.pt')
+                    save = 1
             else:
                 no_improvement_count += 1
 

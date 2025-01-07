@@ -21,6 +21,56 @@ lr=0.002, embed_dim=8, mlp_hidden_dim=64
         epoch=8, train_loss=2.81, val_loss=2.60, val_corr=0.2578, no_imp=0, save=1
     
     mlp_hidden_dim=256
+        epoch=0, train_loss=3.44, val_loss=3.47, val_corr=0.1581, no_imp=1, save=0                                                                                                                                                                                                                                                 
+        epoch=1, train_loss=3.33, val_loss=3.19, val_corr=0.1916, no_imp=1, save=0                                                                                                                                                                                                                                                 
+        epoch=2, train_loss=3.15, val_loss=3.13, val_corr=0.2053, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=3, train_loss=3.14, val_loss=3.06, val_corr=0.2290, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=4, train_loss=3.24, val_loss=3.00, val_corr=0.2424, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=5, train_loss=3.02, val_loss=2.95, val_corr=0.2397, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=6, train_loss=2.96, val_loss=2.77, val_corr=0.2609, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=7, train_loss=2.81, val_loss=2.63, val_corr=0.2586, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=8, train_loss=2.80, val_loss=2.63, val_corr=0.2420, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=9, train_loss=2.79, val_loss=2.55, val_corr=0.2602, no_imp=0, save=1                                                                                                                                                                                                                                                 
+        epoch=10, train_loss=2.80, val_loss=2.51, val_corr=0.2644, no_imp=0, save=1                                                                                                                                                                                                                                                
+        epoch=117, train_loss=2.17, val_loss=2.10, val_corr=0.3328, no_imp=0, save=1                                                                                                                                                                                                                                               
+
+        embed_dim=16
+            epoch=0, train_loss=3.43, val_loss=3.49, val_corr=0.1133, no_imp=1, save=0
+            epoch=1, train_loss=3.38, val_loss=3.29, val_corr=0.1634, no_imp=1, save=0
+            epoch=2, train_loss=3.25, val_loss=3.19, val_corr=0.2018, no_imp=0, save=1
+            epoch=3, train_loss=3.33, val_loss=3.12, val_corr=0.2367, no_imp=0, save=1
+            epoch=4, train_loss=3.13, val_loss=2.98, val_corr=0.2493, no_imp=0, save=1
+            epoch=5, train_loss=2.90, val_loss=3.12, val_corr=0.2441, no_imp=1, save=0
+            epoch=6, train_loss=3.08, val_loss=2.93, val_corr=0.2669, no_imp=0, save=1
+            epoch=7, train_loss=2.95, val_loss=2.86, val_corr=0.2643, no_imp=1, save=0
+            epoch=8, train_loss=3.00, val_loss=2.89, val_corr=0.2665, no_imp=1, save=0
+            epoch=9, train_loss=2.87, val_loss=2.91, val_corr=0.2607, no_imp=1, save=0
+            epoch=10, train_loss=2.94, val_loss=2.92, val_corr=0.2682, no_imp=0, save=1
+            epoch=11, train_loss=2.99, val_loss=2.82, val_corr=0.2655, no_imp=1, save=0
+            epoch=12, train_loss=3.04, val_loss=2.91, val_corr=0.2768, no_imp=0, save=1
+            epoch=13, train_loss=2.85, val_loss=2.84, val_corr=0.2736, no_imp=1, save=0
+            epoch=14, train_loss=3.11, val_loss=2.93, val_corr=0.2562, no_imp=1, save=0
+            epoch=15, train_loss=2.91, val_loss=2.89, val_corr=0.2678, no_imp=1, save=0
+            epoch=16, train_loss=3.20, val_loss=2.90, val_corr=0.2696, no_imp=1, save=0
+            epoch=17, train_loss=3.00, val_loss=2.85, val_corr=0.2773, no_imp=0, save=1
+            epoch=18, train_loss=3.14, val_loss=2.85, val_corr=0.2756, no_imp=1, save=0
+            epoch=19, train_loss=3.26, val_loss=2.94, val_corr=0.2533, no_imp=1, save=0
+            epoch=20, train_loss=3.22, val_loss=2.92, val_corr=0.2645, no_imp=1, save=0
+            epoch=21, train_loss=3.15, val_loss=2.91, val_corr=0.2661, no_imp=1, save=0
+            epoch=22, train_loss=3.06, val_loss=2.82, val_corr=0.2743, no_imp=1, save=0
+            epoch=23, train_loss=3.13, val_loss=2.85, val_corr=0.2649, no_imp=1, save=0
+            epoch=24, train_loss=2.95, val_loss=2.84, val_corr=0.2803, no_imp=0, save=1
+            epoch=25, train_loss=3.00, val_loss=2.87, val_corr=0.2752, no_imp=1, save=0
+            epoch=26, train_loss=3.14, val_loss=2.84, val_corr=0.2847, no_imp=0, save=1
+            epoch=27, train_loss=3.02, val_loss=2.84, val_corr=0.2788, no_imp=1, save=0
+            epoch=28, train_loss=2.99, val_loss=2.82, val_corr=0.2805, no_imp=1, save=0
+            epoch=29, train_loss=3.17, val_loss=2.85, val_corr=0.2805, no_imp=1, save=0
+            epoch=30, train_loss=3.11, val_loss=2.85, val_corr=0.2848, no_imp=0, save=1
+            epoch=136, train_loss=2.46, val_loss=2.21, val_corr=0.3142, no_imp=0, save=1
+
+            decay=1e-6
+
+
 
 
     decay=0.99

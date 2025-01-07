@@ -72,7 +72,7 @@ def renderSimple (n, hand, discard):
     if discard:
         s += ' '
         s += emoji[discard - 1]
-    print(f'{n}.', s)
+    print(s)
 
 
 def isdigit (c):

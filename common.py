@@ -179,3 +179,19 @@ def dictConvertValue(container, target_key, convertFunc):
     obj = container[target_key]
     container[target_key] = _dictConvertValue(obj, convertFunc)
     return container
+
+
+def debugTensor(t, title):
+    if type(t) == torch.Tensor:
+        t = list(t.reshape(-1))
+    elif type(t) != list:
+        t = [t,]
+    print(title)
+    txt = ''
+    for i in range(len(t)):
+        txt += f'{i}: {t[i]:.4f} '
+        if i % 10 == 9:
+            print(txt)
+            txt = ''
+    if len(txt) > 0:
+        print(txt)
