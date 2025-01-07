@@ -1,3 +1,4 @@
+import glob
 import torch
 import multiprocessing
 import os
@@ -8,10 +9,10 @@ import sys
 from dask import delayed, compute
 from quezha_parser_1 import getData
 PARALLEL = 16
-
-def convertX(action_samples, max_tile_index=33, seq_len=32):
+max_tile_index=33
+def convertX(action_samples):
     """
-    将多个 action_sample 转化为 (x_tiles, history_seq, y) 用于模型输入和训练。
+    将多个 action_sample 转化为 (x, y, w) 用于模型输入和训练。
     
     参数:
     -------
@@ -22,106 +23,102 @@ def convertX(action_samples, max_tile_index=33, seq_len=32):
         'fulu':  {0: [...], 1: [...], 2: [...], 3: [...]},  # 各玩家副露信息
         'hands': [...],                                     # 当前玩家(0)手牌
         'discard': int,                                     # 当前玩家本步真正打出的牌(标签)
+        'weight': int,                                      # 权重
         ... (其他可有可无)
         }
     max_tile_index: int
-        牌的最大索引(示例设为 33 表示可能万/条/饼/风箭共34种). 
-        如果只测试1..9可设为9.
+        牌的最大索引(默认33).
     seq_len: int
-        记录多少步的历史弃牌做时序输入. 若实际多于seq_len, 保留后seq_len个; 不足则补0
-    
+        时序弃牌历史的衰减系数长度.
+
     返回:
     -------
-    x_tiles:  Tensor, shape=[B, 3, max_tile_index+1]
-    history_seq: Tensor, shape=[B, seq_len]
-    y:        Tensor, shape=[B], 每条记录的弃牌标签 (0..max_tile_index)
+    x: Tensor, shape=[B, N, 4, 9]
+        N 是特征维度，每一项表示主观视角的不同信息。
+    y: Tensor, shape=[B]
+        每条记录的弃牌标签 (0..max_tile_index)。
+    w: Tensor, shape=[B]
+        每条记录的权重。
     """
     batch_size = len(action_samples)
-    
-    # in_channels=3: (0)我的手牌计数, (1)我的副露计数, (2)其他人副露计数
-    x_tiles = torch.zeros(batch_size, 3, max_tile_index+1, dtype=torch.float32)
-    
-    # 时序: 所有玩家的弃牌历史(整合后), 再截取或补0到 seq_len
-    history_seq = torch.zeros(batch_size, seq_len, dtype=torch.long)
-    
-    # 训练标签
+    N = 10  # 特征数量
+    num_rows = 4
+    num_cols = 9  # 最大长度（字牌行有效长度为 7，后面补 0）
+
+    # 初始化 x, y, w
+    x = torch.zeros(batch_size, N, num_rows, num_cols, dtype=torch.float32)
     y = torch.zeros(batch_size, dtype=torch.long)
-    W = torch.zeros(batch_size, dtype=torch.long)
-    
+    w = torch.zeros(batch_size, dtype=torch.float32)
+
     for i, sample in enumerate(action_samples):
-        # ========== A) 构建 x_tiles ==========
-        
-        # 1) 我的手牌 (channel=0)
-        my_hand_counts = torch.zeros(max_tile_index+1, dtype=torch.float32)
-        for tile in sample['hands']:
+        # 提取手牌信息
+        hands = sample['hands']
+        my_hand_counts = [0] * (max_tile_index + 1)
+        for tile in hands:
             if tile <= max_tile_index:
                 my_hand_counts[tile] += 1
-        x_tiles[i, 0] = my_hand_counts
         
-        # 2) 我的副露 (channel=1)
-        my_fulu_counts = torch.zeros(max_tile_index+1, dtype=torch.float32)
-        if 0 in sample['fulu']:
-            # sample['fulu'][0] 可能是一个 列表, 里面每个元素是(或可能是) tuple/list
-            # 如: [(6,5,6)] 或 [ [3,3,3] ] -- 需要自己约定解析
-            for meld in sample['fulu'][0]:
-                # meld 可能是一个 tuple 或 list, 把它flatten出来
+        # 提取副露信息
+        fulu_counts = [[0] * (max_tile_index + 1) for _ in range(4)]  # 0:自己, 1:下家, 2:对家, 3:上家
+        for pid, fulu in sample['fulu'].items():
+            for meld in fulu:
                 if isinstance(meld, (list, tuple)):
-                    for t in meld:
-                        if t <= max_tile_index:
-                            my_fulu_counts[t] += 1
-                else:
-                    # 如果是单个数
-                    if meld <= max_tile_index:
-                        my_fulu_counts[meld] += 1
-        x_tiles[i, 1] = my_fulu_counts
+                    for tile in meld:
+                        if tile <= max_tile_index:
+                            fulu_counts[pid][tile] += 1
+                elif meld <= max_tile_index:
+                    fulu_counts[pid][meld] += 1
         
-        # 3) 其他人副露 (channel=2)
-        others_fulu_counts = torch.zeros(max_tile_index+1, dtype=torch.float32)
-        for pid in [1, 2, 3]:
-            if pid in sample['fulu']:
-                for meld in sample['fulu'][pid]:
-                    if isinstance(meld, (list, tuple)):
-                        for t in meld:
-                            if t <= max_tile_index:
-                                others_fulu_counts[t] += 1
-                    else:
-                        if meld <= max_tile_index:
-                            others_fulu_counts[meld] += 1
-        x_tiles[i, 2] = others_fulu_counts
+        # 计算剩余牌
+        remaining_counts = [4] * (max_tile_index + 1)
+        for j in range(max_tile_index + 1):
+            remaining_counts[j] -= my_hand_counts[j]
+            remaining_counts[j] -= sum(fulu_counts[pid][j] for pid in range(4))
         
-        # ========== B) 构建 history_seq(所有人的弃牌) ==========
-        all_discards = []
-        for pid in [0, 1, 2, 3]:
-            # paihe[pid] 是从早到晚, 直接extend
-            discard_list = sample['paihe'].get(pid, [])
-            all_discards.extend(discard_list)
-        
-        # 若总弃牌数>seq_len, 留后 seq_len; 若不足, 前面补0
-        # 这里演示 "保留最新" 的 seq_len
-        total_len = len(all_discards)
-        start_idx = max(0, total_len - seq_len)
-        needed = seq_len - (total_len - start_idx)
-        
-        # 补0(写在 history_seq[i, 0:needed]) 之后再写 discard
-        # 先全部填0
-        seq_data = [0]*needed + all_discards[start_idx:]
-        
-        # 截断到 seq_len
-        seq_data = seq_data[-seq_len:]
-        
-        # clamp一下，以防 tile超出 max_tile_index
-        seq_data = [min(x, max_tile_index) for x in seq_data]
-        
-        # 写入
-        history_seq[i] = torch.tensor(seq_data, dtype=torch.long)
-        
-        # ========== C) 训练标签 y = 当前玩家实际打出的牌 ==========
-        discard_tile = sample['discard']
-        discard_tile = min(discard_tile, max_tile_index)
-        y[i] = discard_tile
-        W[i] = sample['weight']
-    
-    return (x_tiles, history_seq), y, W
+        # 时序编码弃牌历史
+        decay_factor = 0.8  # 每一步衰减系数
+        discard_history = [[0] * (max_tile_index + 1) for _ in range(4)]  # 0:自己, 1:下家, 2:对家, 3:上家
+        for pid, discards in sample['paihe'].items():
+            weight = 1.0
+            for tile in reversed(discards):
+                if tile <= max_tile_index:
+                    discard_history[pid][tile] += weight
+                    weight *= decay_factor
+
+        # 填入 x
+        x[i, 0] = encode_to_4x9(my_hand_counts)           # 自己的手牌
+        x[i, 1] = encode_to_4x9(my_hand_counts, fulu_counts[0])  # 自己的手牌+副露
+        x[i, 2] = encode_to_4x9(remaining_counts)         # 剩余牌
+        x[i, 3] = encode_to_4x9(fulu_counts[0])           # 自己的副露
+        x[i, 4] = encode_to_4x9(fulu_counts[1])           # 下家的副露
+        x[i, 5] = encode_to_4x9(fulu_counts[2])           # 对家的副露
+        x[i, 6] = encode_to_4x9(fulu_counts[3])           # 上家的副露
+        x[i, 7] = encode_to_4x9(discard_history[0])       # 自己的弃牌
+        x[i, 8] = encode_to_4x9(discard_history[1])       # 下家的弃牌
+        x[i, 9] = encode_to_4x9(discard_history[2])       # 对家的弃牌
+
+        # 标签
+        y[i] = min(sample['discard'], max_tile_index)
+        w[i] = sample.get('weight', 1.0)  # 默认权重为 1.0
+
+    return x, y, w
+
+
+def encode_to_4x9(counts, additional_counts=None):
+    """
+    将 counts 转换为 4x9 格式（万/条/饼/字）。
+    如果 additional_counts 不为 None，则将其累加。
+    """
+    rows = [counts[0:9], counts[9:18], counts[18:27], counts[27:34]]  # 补 0 到 9
+    if additional_counts:
+        rows = [
+            [a + b for a, b in zip(row, additional_counts[start_idx:start_idx + len(row)])]
+            for row, start_idx in zip(rows, [0, 9, 18, 27])
+        ]
+    rows[3] += [0, 0]
+    return torch.tensor(rows, dtype=torch.float32)
+
+
 
 def process_and_save(task_type, begin, end):
     """
@@ -132,7 +129,7 @@ def process_and_save(task_type, begin, end):
     data = getData(begin, end)
     
     # 2. 处理数据
-    converted_data = convertX(data, max_tile_index=33, seq_len=32)
+    converted_data = convertX(data)
     
     # 3. 保存结果
     filename = f'.discard_model/{task_type}_{begin}_{end}.pkl'
@@ -160,7 +157,7 @@ def load_data_with_index(file_pattern):
     total_entries = 0
 
     # Get all matching files
-    files = [f for f in os.listdir('.') if f.startswith(file_pattern)]
+    files = [f for f in glob.glob(file_pattern)]
 
     # Sort files to ensure consistent order
     files.sort()
@@ -170,7 +167,7 @@ def load_data_with_index(file_pattern):
             data = pickle.load(f)  # Assume data is a list or iterable of items
             data_blocks.append(data)
             file_offsets.append(total_entries)
-            total_entries += len(data)
+            total_entries += len(data[2])
 
     def get_data_by_index(global_index):
         """
@@ -187,12 +184,16 @@ def load_data_with_index(file_pattern):
             if global_index < file_offsets[i]:
                 block_index = i - 1
                 break
-        else:
-            block_index = len(file_offsets) - 1
+            else:
+                block_index = len(file_offsets) - 1
 
         # Calculate the local index within the block
-        local_index = global_index - file_offsets[block_index]
-        return data_blocks[block_index][local_index]
+        i = global_index - file_offsets[block_index]
+        d = data_blocks[block_index]
+        X = d[0][0][i], d[0][1][i]
+        Y = d[1][i]
+        W = d[2][i]
+        return X, Y, W
 
     return {
         'data_blocks': data_blocks,
@@ -215,32 +216,28 @@ def main():
     train_step = (train_end - train_begin) // PARALLEL
     valid_step = (valid_end - valid_begin) // PARALLEL
 
-    tasks = []
+    if DEBUG:
+        process_and_save('valid', 10001, 10100)
+    else:
+        tasks = []
 
-    # 添加 train 的任务
-    for i in range(PARALLEL):
-        begin = train_begin + i * train_step
-        end = train_begin + (i + 1) * train_step if i < PARALLEL - 1 else train_end
-        tasks.append(('train', begin, end))
+        # 添加 train 的任务
+        for i in range(PARALLEL):
+            begin = train_begin + i * train_step
+            end = train_begin + (i + 1) * train_step if i < PARALLEL - 1 else train_end
+            tasks.append(('train', begin, end))
 
-    # 添加 valid 的任务
-    for i in range(PARALLEL):
-        begin = valid_begin + i * valid_step
-        end = valid_begin + (i + 1) * valid_step if i < PARALLEL - 1 else valid_end
-        tasks.append(('valid', begin, end))
+        # 添加 valid 的任务
+        for i in range(PARALLEL):
+            begin = valid_begin + i * valid_step
+            end = valid_begin + (i + 1) * valid_step if i < PARALLEL - 1 else valid_end
+            tasks.append(('valid', begin, end))
 
-    # 使用 multiprocessing 启动进程
-    processes = []
-    for task_type, begin, end in tasks:
-        p = multiprocessing.Process(target=process_and_save, args=(task_type, begin, end))
-        processes.append(p)
-        p.start()
-
-    # 等待所有进程完成
-    for p in processes:
-        p.join()
-
-    print("All tasks completed.")
+        with multiprocessing.Pool(processes=PARALLEL) as pool:
+            pool.starmap(process_and_save, tasks)
+        print("All tasks completed.")
 
 if __name__ == "__main__":
+    #DEBUG=True
+    DEBUG=False
     main()  # 主进程入口
