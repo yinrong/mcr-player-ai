@@ -1,139 +1,16 @@
 import glob
 import os
 import pickle
-import sys
+import random
 
-import torch.distributed
-from common import *
-from data_server import MyDataset, MyLocalDataset
-from discard_model_data import max_tile_index
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
-import random
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
-
-'''
-用torch编写class Model.
-模型输入x为 shape=[B, N, 4, 9]
-        x[i, 0] = encode_to_4x9(my_hand_counts)           # 自己的手牌
-        x[i, 1] = encode_to_4x9(my_hand_counts, fulu_counts[0])  # 自己的手牌+副露
-        x[i, 2] = encode_to_4x9(remaining_counts)         # 剩余牌
-        x[i, 3] = encode_to_4x9(fulu_counts[0])           # 自己的副露
-        x[i, 4] = encode_to_4x9(fulu_counts[1])           # 下家的副露
-        x[i, 5] = encode_to_4x9(fulu_counts[2])           # 对家的副露
-        x[i, 6] = encode_to_4x9(fulu_counts[3])           # 上家的副露
-        x[i, 7] = encode_to_4x9(discard_history[0])       # 自己的弃牌
-        x[i, 8] = encode_to_4x9(discard_history[1])       # 下家的弃牌
-        x[i, 9] = encode_to_4x9(discard_history[2])       # 对家的弃牌
-
-1. 输出y为 shape=[B,34], 根据x[batch_i, 0]掩码限制模型输出一定为合法输出（弃牌范围必为手牌）
-2. 理解cnn的原理，并在第2维和第3维上自定义多种卷积核等机制，用于捕捉类似于如下的信息： 一、二、三万，四、五、六条，七、八、九饼，上述9张牌每样保留1张是人决策的目标，是模型输出的最重要依据，所以要灵活自定义CNN捕捉这个信息，并且注释清楚，如何继续添加新形式的卷积核。
-3. mlp与cnn输入同样的内容；最后一起通过全连接连接到输出层
-'''
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-class Model(nn.Module):
-    def __init__(
-        self,
-        num_inputs=10,          # 输入特征维度（N）
-        num_rows=4,             # 输入的行数
-        num_cols=9,             # 输入的列数
-        embed_dim=8,           # 通用卷积嵌入维度
-        mlp_hidden_dim=64,     # MLP 隐藏层维度
-        output_dim=34           # 输出类别数
-    ):
-        super(Model, self).__init__()
-
-        # ===== 每个 N 维度的独立 CNN =====
-        self.individual_cnns = nn.ModuleList()
-        for _ in range(num_inputs):
-            self.individual_cnns.append(
-                nn.Sequential(
-                    nn.Conv2d(1, embed_dim, kernel_size=3, padding=1),
-                    nn.LeakyReLU(),
-                    nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1),
-                    nn.LeakyReLU(),
-                    nn.Dropout2d(p=0.8),
-                    nn.AdaptiveAvgPool2d((1, 1)),
-                )
-            )
-
-        # ===== 每个 N 维度的独立 MLP =====
-        self.individual_mlps = nn.ModuleList()
-        for _ in range(num_inputs):
-            self.individual_mlps.append(
-                nn.Sequential(
-                    nn.Flatten(),
-                    nn.Linear(num_rows * num_cols, mlp_hidden_dim),
-                    nn.LeakyReLU(),
-                    nn.Dropout(p=0.8),
-                    nn.Linear(mlp_hidden_dim, embed_dim),
-                )
-            )
-
-        # ===== 最终输出层 =====
-        total_embed_dim = embed_dim * 2 * num_inputs
-        self.output_layer = nn.Sequential(
-            nn.Linear(total_embed_dim, output_dim),
-            nn.LeakyReLU(),
-        )
-
-    @staticmethod
-    def create_hand_mask(hands, max_tile_index=34):
-        """
-        根据手牌生成掩码，确保输出合法。
-        hands: Tensor, shape=[B, 4, 9]
-            当前批量的手牌张数。
-        max_tile_index: int
-            最大牌索引。
-        """
-        batch_size = hands.size(0)
-        mask = torch.zeros((batch_size, max_tile_index), dtype=torch.float32, device=hands.device)
-        for i in range(batch_size):
-            for r in range(hands.size(1)):  # 遍历万/条/饼/字
-                for c in range(hands.size(2)):  # 遍历列
-                    tile_index = r * 9 + c
-                    if tile_index < max_tile_index:
-                        mask[i, tile_index] += hands[i, r, c]
-        return mask
-
-    def forward(self, x):
-        """
-        x: Tensor, shape=[B, N, 4, 9]
-        """
-        batch_size, num_inputs, _, _ = x.shape
-
-        # ===== 每个 N 维度的独立 CNN 分支 =====
-        cnn_features = []
-        for i in range(num_inputs):
-            x_i = x[:, i:i+1, :, :]  # 取出第 i 个输入维度，形状 [B, 1, 4, 9]
-            cnn_features.append(self.individual_cnns[i](x_i).view(batch_size, -1))
-        cnn_features = torch.cat(cnn_features, dim=1)  # 形状 [B, num_inputs * embed_dim]
-
-        # ===== 每个 N 维度的独立 MLP 分支 =====
-        mlp_features = []
-        for i in range(num_inputs):
-            x_i = x[:, i:i+1, :, :]  # 取出第 i 个输入维度，形状 [B, 1, 4, 9]
-            mlp_features.append(self.individual_mlps[i](x_i))
-        mlp_features = torch.cat(mlp_features, dim=1)  # 形状 [B, num_inputs * embed_dim]
-
-        # ===== 特征融合 =====
-        fused_features = torch.cat([cnn_features, mlp_features], dim=1)
-
-        # ===== 输出层 =====
-        logits = self.output_layer(fused_features)  # 形状 [B, output_dim]
-
-        # ===== 应用掩码，限制输出范围 =====
-        hands = x[:, 0]  # 假设第一个维度代表手牌
-        hand_mask = self.create_hand_mask(hands)
-        masked_logits = torch.where(hand_mask < 1, torch.tensor(1e-6, device=logits.device), logits)
-        return masked_logits
+from discard_model import DiscardModel
+from common import *
+from data_server import MyLocalDataset
 
 class Validator:
     def __init__(self, batch_size=5000):
@@ -232,9 +109,8 @@ def train_model(rank, world_size):
     :param val_data:   验证集数据，同上 (也可拆分为别的格式)
     :param batch_size: mini-batch 大小
     :param early_stopping_patience: 若连续多少个epoch在验证集上无显著改进则停止
-    :param min_delta:  判断是否改进的阈值
     """
-    model = Model()
+    model = DiscardModel()
     if world_size > 1:
         model = DDP(model)
 
@@ -248,13 +124,10 @@ def train_model(rank, world_size):
     optimizer = optim.Adam(
         model.parameters(),
         lr=0.004,
-        weight_decay=0.99,
+        #weight_decay=0.99,
     )
     # 注意: 使用 reduction='none'，以便后面计算 sample_weight
     criterion = nn.CrossEntropyLoss(reduction='none')
-
-    best_val_loss = float('inf')
-    no_improvement_count = 0
 
     for epoch in range(99999):
 
@@ -294,25 +167,24 @@ def train_model(rank, world_size):
         train_avg_loss = epoch_loss_sum / sample_count if sample_count>0 else 0.0
 
         # ========== 早停判断 ==========
+        no_improvement_count = 0
+        best_val_corr = 0.20
         save = 0
         if rank == 0:
             # ========== 验证阶段 ==========
             val_avg_loss, val_corr = validator.evaluate(model, criterion)
-            if best_val_loss - val_avg_loss > min_delta:
-                # 有显著改进 => 重置计数
-                best_val_loss = val_avg_loss
+            if val_corr > best_val_corr:
+                best_val_corr = val_corr
                 no_improvement_count = 0
-                if val_corr > 0.01:
-                    torch.save(model, 'best_model_discard.pt')
-                    save = 1
+                torch.save(model, 'best_model_discard.pt')
+                save = 1
             else:
-                # 没有显著改进
                 no_improvement_count += 1
 
             print(f"epoch={epoch}, train_loss={train_avg_loss:.2f}, val_loss={val_avg_loss:.2f}, val_corr={val_corr:.4f}, no_imp={no_improvement_count}, save={save}")
 
             if no_improvement_count >= early_stopping_patience:
-                print(f"Early stopping at epoch {epoch+1}. Best val_loss={best_val_loss:.6f}")
+                print(f"Early stopping at epoch {epoch+1}. Best val_corr={best_val_corr:.6f}")
                 break
 
 
@@ -335,17 +207,20 @@ def split_dataset(games, val_ratio=0.2):
 
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import random
 
 world_size = 1
 batch_size=8
 early_stopping_patience=20
-min_delta=1e-4
 
 if __name__ == '__main__':
     os.environ["OMP_NUM_THREADS"] = "16"
     os.environ["MKL_NUM_THREADS"] = "16"
 
+    torch.set_printoptions(precision=4, sci_mode=False)
     train_model(0, world_size)
+    #mp.spawn(train_model, args=(world_size), nprocs=world_size, join=True)
+    #mp.spawn(train_model, args=(world_size), nprocs=world_size, join=True)
+    #mp.spawn(train_model, args=(world_size), nprocs=world_size, join=True)
     #mp.spawn(train_model, args=(world_size), nprocs=world_size, join=True)

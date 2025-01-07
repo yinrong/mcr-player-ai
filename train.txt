@@ -1,16 +1,44 @@
-lr=0.002
-epoch=0, train_loss=3.47, val_loss=3.51, val_corr=0.1156, no_imp=0, save=1
-epoch=1, train_loss=3.39, val_loss=3.34, val_corr=0.1687, no_imp=0, save=1
-epoch=2, train_loss=3.26, val_loss=3.07, val_corr=0.2061, no_imp=0, save=1
-epoch=3, train_loss=3.05, val_loss=2.87, val_corr=0.2571, no_imp=0, save=1
-epoch=4, train_loss=2.76, val_loss=2.80, val_corr=0.2533, no_imp=0, save=1
-epoch=5, train_loss=2.97, val_loss=2.79, val_corr=0.2619, no_imp=0, save=1
-epoch=6, train_loss=2.82, val_loss=2.70, val_corr=0.2615, no_imp=0, save=1
-epoch=7, train_loss=2.74, val_loss=2.60, val_corr=0.2746, no_imp=0, save=1
-epoch=8, train_loss=2.74, val_loss=2.56, val_corr=0.2718, no_imp=0, save=1
+lr=0.002, embed_dim=8, mlp_hidden_dim=64
+    epoch=0, train_loss=3.47, val_loss=3.51, val_corr=0.1156, no_imp=0, save=1
+    epoch=1, train_loss=3.39, val_loss=3.34, val_corr=0.1687, no_imp=0, save=1
+    epoch=2, train_loss=3.26, val_loss=3.07, val_corr=0.2061, no_imp=0, save=1
+    epoch=3, train_loss=3.05, val_loss=2.87, val_corr=0.2571, no_imp=0, save=1
+    epoch=4, train_loss=2.76, val_loss=2.80, val_corr=0.2533, no_imp=0, save=1
+    epoch=5, train_loss=2.97, val_loss=2.79, val_corr=0.2619, no_imp=0, save=1
+    epoch=6, train_loss=2.82, val_loss=2.70, val_corr=0.2615, no_imp=0, save=1
+    epoch=7, train_loss=2.74, val_loss=2.60, val_corr=0.2746, no_imp=0, save=1
+    epoch=8, train_loss=2.74, val_loss=2.56, val_corr=0.2718, no_imp=0, save=1
 
-decay=0.99
-epoch=0, train_loss=3.50, val_loss=3.52, val_corr=0.1069, no_imp=0, save=1
-epoch=1, train_loss=3.51, val_loss=3.51, val_corr=0.2002, no_imp=0, save=1
-epoch=2, train_loss=3.51, val_loss=3.51, val_corr=0.2474, no_imp=0, save=1
-epoch=3, train_loss=3.51, val_loss=3.51, val_corr=0.2291, no_imp=1, save=0
+    mlp_hidden_dim=128
+        epoch=0, train_loss=3.47, val_loss=3.49, val_corr=0.1456, no_imp=1, save=0
+        epoch=1, train_loss=3.26, val_loss=3.07, val_corr=0.2321, no_imp=0, save=1
+        epoch=2, train_loss=3.12, val_loss=3.03, val_corr=0.2522, no_imp=0, save=1
+        epoch=3, train_loss=3.06, val_loss=3.02, val_corr=0.2344, no_imp=0, save=1
+        epoch=4, train_loss=2.99, val_loss=2.99, val_corr=0.2363, no_imp=0, save=1
+        epoch=5, train_loss=2.97, val_loss=2.84, val_corr=0.2686, no_imp=0, save=1
+        epoch=6, train_loss=2.80, val_loss=2.73, val_corr=0.2603, no_imp=0, save=1
+        epoch=7, train_loss=2.79, val_loss=2.65, val_corr=0.2653, no_imp=0, save=1
+        epoch=8, train_loss=2.81, val_loss=2.60, val_corr=0.2578, no_imp=0, save=1
+    
+    mlp_hidden_dim=256
+
+
+    decay=0.99
+        epoch=0, train_loss=3.50, val_loss=3.52, val_corr=0.1069, no_imp=0, save=1
+        epoch=1, train_loss=3.51, val_loss=3.51, val_corr=0.2002, no_imp=0, save=1
+        epoch=2, train_loss=3.51, val_loss=3.51, val_corr=0.2474, no_imp=0, save=1
+        epoch=3, train_loss=3.51, val_loss=3.51, val_corr=0.2291, no_imp=1, save=0
+        epoch=4, train_loss=3.51, val_loss=3.51, val_corr=0.2224, no_imp=2, save=0
+        epoch=5, train_loss=3.51, val_loss=3.51, val_corr=0.2289, no_imp=3, save=0
+        epoch=6, train_loss=3.51, val_loss=3.51, val_corr=0.2508, no_imp=4, save=0
+        epoch=7, train_loss=3.51, val_loss=3.51, val_corr=0.2472, no_imp=5, save=0
+        epoch=8, train_loss=3.51, val_loss=3.51, val_corr=0.1739, no_imp=0, save=1
+
+        embed_dim=16
+            epoch=0, train_loss=3.43, val_loss=3.49, val_corr=0.0963, no_imp=0, save=1
+            epoch=1, train_loss=3.50, val_loss=3.51, val_corr=0.1949, no_imp=1, save=0
+            epoch=2, train_loss=3.51, val_loss=3.51, val_corr=0.2464, no_imp=2, save=0
+            epoch=3, train_loss=3.51, val_loss=3.51, val_corr=0.1979, no_imp=3, save=0
+            epoch=4, train_loss=3.51, val_loss=3.51, val_corr=0.1924, no_imp=4, save=0
+            epoch=5, train_loss=3.51, val_loss=3.51, val_corr=0.2156, no_imp=5, save=0
+            epoch=6, train_loss=3.51, val_loss=3.51, val_corr=0.2168, no_imp=6, save=0

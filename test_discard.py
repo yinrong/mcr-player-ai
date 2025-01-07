@@ -1,6 +1,8 @@
 import random
 import torch
-from train_discard import Model  # 替换为你的模型定义文件路径
+from discard_model_data import convertX
+from mjutil import renderSimple
+from discard_model import DiscardModel  # 替换为你的模型定义文件路径
 
 # 假设牌的索引到可读名称的映射
 tile_index_to_str = {
@@ -27,46 +29,45 @@ def simulate_game(model_path, seq_len=32, num_rounds=30):
     deck = deck[13:]  # 剩余牌堆
     history = []  # 弃牌历史
 
-    # 修复: 确保 hand 是整数索引并正确打印
-    print("初始手牌:", [tile_index_to_str[t] for t in hand])
+    renderSimple(0, hand, None)
 
     for i in range(num_rounds):
         if not deck:
-            print("牌堆已空，结束游戏！")
+            print("牌山已空")
             break
 
         # 摸牌
         new_tile = deck.pop(0)
+        hand = sorted(hand)
         hand.append(new_tile)
-        print(f"\n第 {i + 1} 轮摸牌: {tile_index_to_str[new_tile]}")
-        print("摸牌后手牌:", [tile_index_to_str[t] for t in hand])
+
+        # 准备输入样本
+        action_sample = {
+            'paihe': {player: history for player in range(4)},  # 所有玩家的弃牌历史
+            'fulu': {player: [] for player in range(4)},  # 假设没有副露
+            'hands': hand,
+            'weight': 1,
+            'discard': 1,
+        }
 
         # 转换输入
-        x_tiles = torch.zeros(1, 3, 34, dtype=torch.float32)  # 假设 0:手牌, 1:自己的副露, 2:他人副露
-        for tile in hand:
-            x_tiles[0, 0, tile] += 1
-
-        history_seq = torch.zeros(1, seq_len, dtype=torch.long)
-        if history:  # 只有在 history 不为空时，才进行赋值
-            history_indices = history[-seq_len:]
-            history_seq[0, -len(history_indices):] = torch.tensor(history_indices)
+        x,y,w = convertX([action_sample])
 
         # 模型预测弃牌
         with torch.no_grad():
-            logits = model(x_tiles, history_seq)
+            logits = model(x)
         suggested_discard = logits.argmax(dim=-1).item()
-        print(f"建议弃牌: {tile_index_to_str[suggested_discard]}")
+        print('argmax:', suggested_discard)
+
+        renderSimple(i + 1, hand, suggested_discard)
 
         # 执行弃牌
         hand.remove(suggested_discard)
         history.append(suggested_discard)
-        print("弃牌后手牌:", [tile_index_to_str[t] for t in hand])
-        print("弃牌历史:", [tile_index_to_str[t] for t in history])
 
-    print("\n游戏结束！最终手牌:", [tile_index_to_str[t] for t in hand])
-    print("最终弃牌历史:", [tile_index_to_str[t] for t in history])
 
 # 调用模拟游戏
 if __name__ == "__main__":
-    model_path = "best_model_discard.pt"  # 替换为实际模型路径
+    model_path = "best_model_discard_0.25.pt"  # 替换为实际模型路径
+    torch.set_printoptions(precision=4, sci_mode=False)
     simulate_game(model_path)
