@@ -4,6 +4,8 @@ from common import debugTensor, nn, torch
 import torch
 import torch.nn as nn
 
+from quezha_parser_1 import TILE_TYPE_NUM
+
 
 class DiscardModel(nn.Module):
     def __init__(
@@ -52,22 +54,19 @@ class DiscardModel(nn.Module):
         )
 
     @staticmethod
-    def create_hand_mask(hands, max_tile_index=34):
+    def create_hand_mask(hands):
         """
         根据手牌生成掩码，确保输出合法。
         hands: Tensor, shape=[B, 4, 9]
             当前批量的手牌张数。
-        max_tile_index: int
-            最大牌索引。
         """
         batch_size = hands.size(0)
-        mask = torch.zeros((batch_size, max_tile_index), dtype=torch.float32, device=hands.device)
+        mask = torch.zeros((batch_size, TILE_TYPE_NUM), dtype=torch.float32, device=hands.device)
         for i in range(batch_size):
             for r in range(hands.size(1)):  # 遍历万/条/饼/字
                 for c in range(hands.size(2)):  # 遍历列
                     tile_index = r * 9 + c
-                    if tile_index < max_tile_index:
-                        mask[i, tile_index] += hands[i, r, c]
+                    mask[i, tile_index] += hands[i, r, c]
         return mask
 
     def forward(self, x):

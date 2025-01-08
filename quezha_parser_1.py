@@ -3,7 +3,7 @@ from functional import seq
 import numpy as np
 from common import *
 from record import read_record
-
+TILE_TYPE_NUM = 34
 TILES = (
     '1m','2m','3m','4m','5m','6m','7m','8m','9m',
     '1s','2s','3s','4s','5s','6s','7s','8s','9s',
@@ -21,7 +21,7 @@ def get_tiles(tile_id: int) -> str:
     return TILES[tile_id//4]
 
 def getTileTypeId(tile_id: int):
-    return tile_id//4 + 1
+    return tile_id//4
 def getTileTypeIdPair(tile_id: int):
     """
     将 0~135 的 TileId 转换为 (suit, rank) 的二元组。
@@ -74,10 +74,27 @@ def translate_fulu(fulu_unit):
 
 def getOneGame(id)->list:
     try:
-        return _getOneGame(id)
-    except Exception as err:
-        print('getOneGame error:', id, err)
-        return None
+        ret = _getOneGame(id)
+        #print('getOneGame succ: ', id)
+        return ret
+    except RemoveFromHandException as err:
+        print('getOneGame error:', err)
+
+class RemoveFromHandException(Exception):
+    """Custom exception for discard errors in the game."""
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+def removeFromHand (M, game_id, hands, player_index, discard, type):
+    game_id=game_id
+    player_name=M['p'][player_index]['n']
+    discard_tile=get_tiles(discard)
+    if discard not in hands[player_index]:
+        raise RemoveFromHandException(
+            f"DiscardException. extra_msg={type}, game_id={game_id}, player={player_name}, discard={discard_tile}"
+        )
+    hands[player_index].remove(discard)
 
 def _getOneGame(id)->list:
     """
@@ -109,29 +126,29 @@ def _getOneGame(id)->list:
 
     # 发牌
     walls = walls[start_id:] + walls[:start_id]
-    players = {0: [], 1: [], 2: [], 3: []}
+    hands = {0: [], 1: [], 2: [], 3: []}
     players_fulu = {0: [], 1: [], 2: [], 3:[]}
     paihe = {0:[], 1:[], 2:[], 3:[]}
     is_hand_discard_dict = {0:[], 1:[], 2:[], 3:[]}
     huapai = {0:0, 1:0, 2:0, 3:0}
 
     for _ in range(3):
-        for player in players:
-            players[player].extend(walls[:4])
+        for player_index in hands:
+            hands[player_index].extend(walls[:4])
             walls = walls[4:]
-    for player in players:
-        players[player].append(walls[0])
+    for player_index in hands:
+        hands[player_index].append(walls[0])
         walls = walls[1:]
-    players[0].append(walls[0])
+    hands[0].append(walls[0])
     walls = walls[1:]
 
-    last_discard = None
-    last_draw = None
+    last_discard = 'to-init-1'
+    last_draw = 'to-init-2'
     winner_index = -1
 
     #print('game id:', id)
     for action in M['a']:
-        player = action['p']
+        player_index = action['p']
         action_type = action['a']
         action_detail = action['d']
         #print('action:', action)
@@ -140,107 +157,93 @@ def _getOneGame(id)->list:
             # 无动作(过)
             continue
         elif action_type == 1:
-            # 摸打
+            # 展示花牌
             draw = get_hi(action_detail)
             discard = get_lo(action_detail)
-            players[player].append(draw)
-            if discard in players[player]:
-                players[player].remove(discard)
-            huapai[player] += 1
-            last_draw = None
+            #print(action_type, discard, getTileTypeId(discard))
+            hands[player_index].append(draw)
+            removeFromHand(M, id, hands, player_index, discard, '花')
+            huapai[player_index] += 1
+            last_draw = 'to-init-flower'
         elif action_type == 2:
             # 弃牌
             discard = get_lo(action_detail)
             is_hand_discard = bool((action_detail>>8)&0xFF)
-            is_hand_discard_dict[player].append(is_hand_discard)
+            is_hand_discard_dict[player_index].append(is_hand_discard)
 
             state_dict = {
-                "action_type":"discard",
-                "player": player,
+                "action_type": "discard",
+                "player": player_index,
                 "paihe": deepcopy(paihe),
                 "fulu": deepcopy(players_fulu),
                 "is_hand_discard": deepcopy(is_hand_discard_dict),
-                "hands":deepcopy(players[player]),
-                "discard":discard,
+                "hands":deepcopy(hands[player_index]),
+                "discard": discard,
             }
             actions.append(state_dict)
 
-            paihe[player].append(discard)
-            if discard in players[player]:
-                players[player].remove(discard)
+            paihe[player_index].append(discard)
+            removeFromHand(M, id, hands, player_index, discard, '弃')
             last_discard = discard
         elif action_type == 3:
             # 吃
             offer_id = get_offer(action_detail)
             lower, middle, upper = get_offer_tile(action_detail)
             if offer_id == 1:
-                players[player].remove(middle)
-                players[player].remove(upper)
-                players_fulu[player].append((lower, middle, upper))
+                removeFromHand(M, id, hands, player_index, upper , '吃3')
+                removeFromHand(M, id, hands, player_index, middle, '吃3')
+                players_fulu[player_index].append((lower, middle, upper))
             elif offer_id == 2:
-                players[player].remove(lower)
-                players[player].remove(upper)
-                players_fulu[player].append((middle, lower, upper))
+                removeFromHand(M, id, hands, player_index, upper , '吃2')
+                removeFromHand(M, id, hands, player_index, lower , '吃2')
+                players_fulu[player_index].append((middle, lower, upper))
             elif offer_id == 3:
-                #print('before remove:', players, 'going to remove:', lower, middle, upper)
-                players[player].remove(lower)
-                players[player].remove(middle)
-                players_fulu[player].append((upper, lower, middle))
+                removeFromHand(M, id, hands, player_index, middle, '吃1')
+                removeFromHand(M, id, hands, player_index, lower , '吃1')
+                players_fulu[player_index].append((upper, lower, middle))
         elif action_type == 4:
             # 碰
             offer_id = get_offer(action_detail)
             tile = get_pack_tile(action_detail)
-            count = 0
             hands_pair = []
-            for t in players[player][:]:
+            for t in hands[player_index][:]:
                 if (t&0xFC) == (tile&0xFC):
-                    players[player].remove(t)
+                    removeFromHand(M, id, hands, player_index, t , '碰')
                     hands_pair.append(t)
-                    count += 1
-                    if count == 2:
-                        break
             if offer_id == 1:
-                players_fulu[player].append([last_discard]+hands_pair)
+                players_fulu[player_index].append([last_discard]+hands_pair)
             elif offer_id == 2:
-                players_fulu[player].append([hands_pair[0], last_discard, hands_pair[1]])
+                players_fulu[player_index].append([hands_pair[0], last_discard, hands_pair[1]])
             elif offer_id == 3:
-                players_fulu[player].append(hands_pair+[last_discard])
+                players_fulu[player_index].append(hands_pair+[last_discard])
         elif action_type == 5:
             # 杠
             tile = get_pack_tile(action_detail)
             if is_add_kong(action_detail):
                 # 加杠
-                for fulu in players_fulu[player]:
+                for fulu in players_fulu[player_index]:
                     if isinstance(fulu, list) and len(fulu)>0 and (fulu[0]&0xFC)==(tile&0xFC):
-                        if last_draw in players[player]:
-                            players[player].remove(last_draw)
-                            fulu.append(last_draw)
-                        break
+                        fulu.append(fulu[0])
             else:
                 offer_id = get_offer(action_detail)
                 if offer_id:
                     # 明杠
-                    if last_draw in players[player]:
-                        players[player].remove(last_draw)
-                    players_fulu[player].append(tuple(range(tile, tile+4)))
+                    pass
                 else:
                     # 暗杠
-                    players_fulu[player].append(list(range(tile, tile+4)))
-                count = 0
-                for h in players[player][:]:
-                    if h&0xFC == tile&0xFC:
-                        players[player].remove(h)
-                        count += 1
-                        if count==3:
-                            break
+                    pass
+                players_fulu[player_index].append(list(range(tile, tile+4)))
+            for h in hands[player_index][:]:
+                if h&0xFC == tile&0xFC:
+                    removeFromHand(M, id, hands, player_index, h , '杠')
         elif action_type == 6:
             # 和牌
             draw = get_hi(action_detail)
-            winner_index = player
+            winner_index = player_index
         elif action_type == 7:
             # 补牌(如花牌)
             draw = get_lo(action_detail)
-            players[player].append(draw)
+            hands[player_index].append(draw)
             last_draw = draw
 
     ''' one action:
@@ -266,6 +269,7 @@ def _getOneGame(id)->list:
     # 输出胜利者出牌过程
     actions = (seq(actions)
         .map(lambda e: {
+            'game_id': id,
             'player_name': M['p'][e['player']]['n'],
             'player_id': M['p'][e['player']]['i'],
             **e,
@@ -339,7 +343,7 @@ def convertTrainData(rank_info, games):
             input_encoded = encodeTableState(paihe, fulu, hands)
             
             # 4) 编码标签：discard那张牌
-            discard_tile = action.get('discard', None)
+            discard_tile = action['discard']
             # 外部函数，未来扩展
             label_encoded = getTileTypeId(discard_tile)
             

@@ -1,15 +1,10 @@
 import glob
+import os
 import torch
 import multiprocessing
-import os
 import pickle
-from multiprocessing import Pool
-import subprocess
-import sys
-from dask import delayed, compute
-from quezha_parser_1 import getData
+from quezha_parser_1 import TILE_TYPE_NUM, getData
 PARALLEL = 16
-max_tile_index=33
 def convertX(action_samples):
     """
     将多个 action_sample 转化为 (x, y, w) 用于模型输入和训练。
@@ -26,8 +21,6 @@ def convertX(action_samples):
         'weight': int,                                      # 权重
         ... (其他可有可无)
         }
-    max_tile_index: int
-        牌的最大索引(默认33).
     seq_len: int
         时序弃牌历史的衰减系数长度.
 
@@ -36,7 +29,6 @@ def convertX(action_samples):
     x: Tensor, shape=[B, N, 4, 9]
         N 是特征维度，每一项表示主观视角的不同信息。
     y: Tensor, shape=[B]
-        每条记录的弃牌标签 (0..max_tile_index)。
     w: Tensor, shape=[B]
         每条记录的权重。
     """
@@ -51,43 +43,49 @@ def convertX(action_samples):
     w = torch.zeros(batch_size, dtype=torch.float32)
 
     for i, sample in enumerate(action_samples):
-        # 提取手牌信息
+        skip = False
         hands = sample['hands']
-        my_hand_counts = [0] * (max_tile_index + 1)
         for tile in hands:
-            if tile <= max_tile_index:
-                my_hand_counts[tile] += 1
+            if tile >= TILE_TYPE_NUM: # 花牌
+                skip = True
+                break
+        if skip: continue
+
+        # 提取手牌信息
+        my_hand_counts = [0] * TILE_TYPE_NUM
+        for tile in hands:
+            if tile >= TILE_TYPE_NUM: continue # 花牌
+            my_hand_counts[tile] += 1
         
         # 提取副露信息
-        fulu_counts = [[0] * (max_tile_index + 1) for _ in range(4)]  # 0:自己, 1:下家, 2:对家, 3:上家
+        fulu_counts = [[0] * TILE_TYPE_NUM for _ in range(4)]  # 0:自己, 1:下家, 2:对家, 3:上家
         for pid, fulu in sample['fulu'].items():
             for meld in fulu:
                 if isinstance(meld, (list, tuple)):
                     for tile in meld:
-                        if tile <= max_tile_index:
-                            fulu_counts[pid][tile] += 1
-                elif meld <= max_tile_index:
+                        fulu_counts[pid][tile] += 1
+                else:
                     fulu_counts[pid][meld] += 1
         
         # 计算剩余牌
-        remaining_counts = [4] * (max_tile_index + 1)
-        for j in range(max_tile_index + 1):
+        remaining_counts = [4] * TILE_TYPE_NUM
+        for j in range(TILE_TYPE_NUM):
             remaining_counts[j] -= my_hand_counts[j]
             remaining_counts[j] -= sum(fulu_counts[pid][j] for pid in range(4))
         
         # 时序编码弃牌历史
         decay_factor = 0.8  # 每一步衰减系数
-        discard_history = [[0] * (max_tile_index + 1) for _ in range(4)]  # 0:自己, 1:下家, 2:对家, 3:上家
+        discard_history = [[0] * TILE_TYPE_NUM for _ in range(4)]  # 0:自己, 1:下家, 2:对家, 3:上家
         for pid, discards in sample['paihe'].items():
             weight = 1.0
             for tile in reversed(discards):
-                if tile <= max_tile_index:
-                    discard_history[pid][tile] += weight
-                    weight *= decay_factor
+                if tile >= TILE_TYPE_NUM: continue # 花牌
+                discard_history[pid][tile] += weight
+                weight *= decay_factor
 
         # 填入 x
         x[i, 0] = encode_to_4x9(my_hand_counts)           # 自己的手牌
-        x[i, 1] = encode_to_4x9(my_hand_counts, fulu_counts[0])  # 自己的手牌+副露
+        x[i, 1] = encode_to_4x9(my_hand_counts, fulu_counts[0])  # 自己的, 手牌+副露
         x[i, 2] = encode_to_4x9(remaining_counts)         # 剩余牌
         x[i, 3] = encode_to_4x9(fulu_counts[0])           # 自己的副露
         x[i, 4] = encode_to_4x9(fulu_counts[1])           # 下家的副露
@@ -97,8 +95,7 @@ def convertX(action_samples):
         x[i, 8] = encode_to_4x9(discard_history[1])       # 下家的弃牌
         x[i, 9] = encode_to_4x9(discard_history[2])       # 对家的弃牌
 
-        # 标签
-        y[i] = min(sample['discard'], max_tile_index)
+        y[i] = sample['discard']
         w[i] = sample.get('weight', 1.0)  # 默认权重为 1.0
 
     return x, y, w
@@ -120,7 +117,7 @@ def encode_to_4x9(counts, additional_counts=None):
 
 
 
-def process_and_save(task_type, begin, end):
+def process_and_save(save_path, task_type, begin, end):
     """
     数据加载、处理和保存函数。由每个子进程调用。
     """
@@ -132,7 +129,9 @@ def process_and_save(task_type, begin, end):
     converted_data = convertX(data)
     
     # 3. 保存结果
-    filename = f'.discard_model/{task_type}_{begin}_{end}.pkl'
+    if not os.path.exists(save_path):
+        os.mkdir(save_path)
+    filename = f'{save_path}/{task_type}_{begin}_{end}.pkl'
     with open(filename, 'wb') as f:
         pickle.dump(converted_data, f)
     print(f"Processed and saved: {filename}")
@@ -211,13 +210,16 @@ def main():
     # 定义数据范围
     train_begin, train_end = 10001, 110000
     valid_begin, valid_end = 110001, 114466
+    save_path = '.discard_model'
 
     # 子进程任务列表
     train_step = (train_end - train_begin) // PARALLEL
     valid_step = (valid_end - valid_begin) // PARALLEL
 
     if DEBUG:
-        process_and_save('valid', 10001, 10100)
+        save_path = '.test_save'
+        process_and_save(save_path, 'valid', 10001, 10500)
+        process_and_save(save_path, 'train', 114000, 114466)
     else:
         tasks = []
 
@@ -225,19 +227,19 @@ def main():
         for i in range(PARALLEL):
             begin = train_begin + i * train_step
             end = train_begin + (i + 1) * train_step if i < PARALLEL - 1 else train_end
-            tasks.append(('train', begin, end))
+            tasks.append((save_path, 'train', begin, end))
 
         # 添加 valid 的任务
         for i in range(PARALLEL):
             begin = valid_begin + i * valid_step
             end = valid_begin + (i + 1) * valid_step if i < PARALLEL - 1 else valid_end
-            tasks.append(('valid', begin, end))
+            tasks.append((save_path, 'valid', begin, end))
 
         with multiprocessing.Pool(processes=PARALLEL) as pool:
             pool.starmap(process_and_save, tasks)
         print("All tasks completed.")
 
 if __name__ == "__main__":
-    #DEBUG=True
-    DEBUG=False
+    DEBUG=True
+    #DEBUG=False
     main()  # 主进程入口

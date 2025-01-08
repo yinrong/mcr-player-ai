@@ -67,7 +67,7 @@ lr=0.002, embed_dim=8, mlp_hidden_dim=64
             epoch=29, train_loss=3.17, val_loss=2.85, val_corr=0.2805, no_imp=1, save=0
             epoch=30, train_loss=3.11, val_loss=2.85, val_corr=0.2848, no_imp=0, save=1
             epoch=136, train_loss=2.46, val_loss=2.21, val_corr=0.3142, no_imp=0, save=1
-
+            epoch=1750, train_loss=2.06, val_loss=1.96, val_corr=0.3846, no_imp=0, save=1
             decay=1e-6
 
 
