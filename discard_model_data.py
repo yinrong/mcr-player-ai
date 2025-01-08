@@ -218,6 +218,7 @@ def main():
 
     if DEBUG:
         save_path = '.test_save'
+        process_and_save(save_path, 'train', 110000, 114466)
         process_and_save(save_path, 'valid', 10001, 10500)
         process_and_save(save_path, 'train', 114000, 114466)
     else:

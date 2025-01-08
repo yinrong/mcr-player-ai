@@ -79,22 +79,36 @@ def getOneGame(id)->list:
         return ret
     except RemoveFromHandException as err:
         print('getOneGame error:', err)
+    except ActionDetailMissingException as err:
+        print('getOneGame error:', err)
+    except Exception as err:
+        print('unknown exception. id=', id, ', err=', err)
+        raise err
+    return None
+
+class ActionDetailMissingException(Exception):
+    pass
 
 class RemoveFromHandException(Exception):
-    """Custom exception for discard errors in the game."""
-    def __init__(self, message):
-        self.message = message
-        super().__init__(self.message)
+    pass
 
-def removeFromHand (M, game_id, hands, player_index, discard, type):
+def removeFromHand (M, game_id, hands, player_index, discard, type, resume=False):
     game_id=game_id
     player_name=M['p'][player_index]['n']
     discard_tile=get_tiles(discard)
-    if discard not in hands[player_index]:
-        raise RemoveFromHandException(
-            f"DiscardException. extra_msg={type}, game_id={game_id}, player={player_name}, discard={discard_tile}"
-        )
-    hands[player_index].remove(discard)
+    if discard in hands[player_index]:
+        hands[player_index].remove(discard)
+    else:
+        found = 0
+        for h in hands[player_index]:
+            if getTileTypeId(h) == getTileTypeId(discard):
+                hands[player_index].remove(h)
+                found += 1
+                break
+        if found == 0 and not resume:
+            raise RemoveFromHandException(
+                f"RemoveFromHardException. extra_msg={type}, game_id={game_id}, player={player_name}, discard={discard_tile}"
+            )
 
 def _getOneGame(id)->list:
     """
@@ -147,14 +161,18 @@ def _getOneGame(id)->list:
     winner_index = -1
 
     #print('game id:', id)
-    for action in M['a']:
+    for step_index, action in enumerate(M['a']):
         player_index = action['p']
         action_type = action['a']
         action_detail = action['d']
+        #if action_detail == 0:
+        #    raise ActionDetailMissingException(
+        #    f"ActionDetailMissingException. game_id={id}, player={player_index}, step={step_index}")
         #print('action:', action)
 
         if action_type == 0:
-            # 无动作(过)
+            # 无动作 ???
+            #print(id, step_index, action)
             continue
         elif action_type == 1:
             # 展示花牌
@@ -190,16 +208,16 @@ def _getOneGame(id)->list:
             offer_id = get_offer(action_detail)
             lower, middle, upper = get_offer_tile(action_detail)
             if offer_id == 1:
-                removeFromHand(M, id, hands, player_index, upper , '吃3')
-                removeFromHand(M, id, hands, player_index, middle, '吃3')
+                removeFromHand(M, id, hands, player_index, upper , '吃1')
+                removeFromHand(M, id, hands, player_index, middle, '吃1')
                 players_fulu[player_index].append((lower, middle, upper))
             elif offer_id == 2:
                 removeFromHand(M, id, hands, player_index, upper , '吃2')
                 removeFromHand(M, id, hands, player_index, lower , '吃2')
                 players_fulu[player_index].append((middle, lower, upper))
             elif offer_id == 3:
-                removeFromHand(M, id, hands, player_index, middle, '吃1')
-                removeFromHand(M, id, hands, player_index, lower , '吃1')
+                removeFromHand(M, id, hands, player_index, middle, '吃3')
+                removeFromHand(M, id, hands, player_index, lower , '吃3')
                 players_fulu[player_index].append((upper, lower, middle))
         elif action_type == 4:
             # 碰
@@ -210,6 +228,13 @@ def _getOneGame(id)->list:
                 if (t&0xFC) == (tile&0xFC):
                     removeFromHand(M, id, hands, player_index, t , '碰')
                     hands_pair.append(t)
+                    if len(hands_pair) == 2:
+                        break
+            if len(hands_pair) != 2:
+                player_name=M['p'][player_index]['n']
+                raise RemoveFromHandException(
+                    f"RemoveFromHardException. extra_msg=碰, game_id={id}, player={player_name}, remove={get_tiles(tile)}"
+                )
             if offer_id == 1:
                 players_fulu[player_index].append([last_discard]+hands_pair)
             elif offer_id == 2:
@@ -223,19 +248,28 @@ def _getOneGame(id)->list:
                 # 加杠
                 for fulu in players_fulu[player_index]:
                     if isinstance(fulu, list) and len(fulu)>0 and (fulu[0]&0xFC)==(tile&0xFC):
-                        fulu.append(fulu[0])
+                        fulu.append(tile)
+                        should_remove = 1
+                        break
             else:
                 offer_id = get_offer(action_detail)
                 if offer_id:
                     # 明杠
-                    pass
+                    should_remove = 3
                 else:
                     # 暗杠
-                    pass
+                    should_remove = 4
                 players_fulu[player_index].append(list(range(tile, tile+4)))
+            count = 0
             for h in hands[player_index][:]:
                 if h&0xFC == tile&0xFC:
                     removeFromHand(M, id, hands, player_index, h , '杠')
+                    count += 1
+            if count != should_remove:
+                player_name=M['p'][player_index]['n']
+                raise RemoveFromHandException(
+                    f"RemoveFromHardException. extra_msg=杠, game_id={id}, player={player_name}, remove={get_tiles(tile)}"
+                )
         elif action_type == 6:
             # 和牌
             draw = get_hi(action_detail)
@@ -468,6 +502,8 @@ def rankPlayers(games):
 import torch
 
 if __name__ == '__main__':
+    g = getOneGame(113266)
+    print(g)
     for e in getOneGame(10001):
         print(e)
         break
