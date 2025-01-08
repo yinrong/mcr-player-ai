@@ -13,8 +13,8 @@ class DiscardModel(nn.Module):
         num_inputs=10,          # 输入特征维度（N）
         num_rows=4,             # 输入的行数
         num_cols=9,             # 输入的列数
-        embed_dim=8,           # 通用卷积嵌入维度
-        mlp_hidden_dim=64,     # MLP 隐藏层维度
+        embed_dim=16,           # 通用卷积嵌入维度
+        mlp_hidden_dim=128,     # MLP 隐藏层维度
         output_dim=34           # 输出类别数
     ):
         super(DiscardModel, self).__init__()
