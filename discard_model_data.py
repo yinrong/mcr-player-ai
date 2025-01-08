@@ -241,6 +241,6 @@ def main():
         print("All tasks completed.")
 
 if __name__ == "__main__":
-    DEBUG=True
-    #DEBUG=False
+    #DEBUG=True
+    DEBUG=False
     main()  # 主进程入口

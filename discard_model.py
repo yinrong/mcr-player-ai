@@ -14,7 +14,7 @@ class DiscardModel(nn.Module):
         num_rows=4,             # 输入的行数
         num_cols=9,             # 输入的列数
         embed_dim=8,           # 通用卷积嵌入维度
-        mlp_hidden_dim=256,     # MLP 隐藏层维度
+        mlp_hidden_dim=64,     # MLP 隐藏层维度
         output_dim=34           # 输出类别数
     ):
         super(DiscardModel, self).__init__()
@@ -61,13 +61,13 @@ class DiscardModel(nn.Module):
             当前批量的手牌张数。
         """
         batch_size = hands.size(0)
-        mask = torch.zeros((batch_size, TILE_TYPE_NUM), dtype=torch.float32, device=hands.device)
+        mask = torch.zeros((batch_size, TILE_TYPE_NUM + 2), dtype=torch.float32, device=hands.device)
         for i in range(batch_size):
             for r in range(hands.size(1)):  # 遍历万/条/饼/字
                 for c in range(hands.size(2)):  # 遍历列
                     tile_index = r * 9 + c
                     mask[i, tile_index] += hands[i, r, c]
-        return mask
+        return mask[:, :-2]
 
     def forward(self, x):
         """

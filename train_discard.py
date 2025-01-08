@@ -123,13 +123,13 @@ def train_model(rank, world_size):
 
     optimizer = optim.Adam(
         model.parameters(),
-        lr=0.004,
-        weight_decay=1e-6,
+        lr=0.002,
+        weight_decay=1e-7,
     )
     # 注意: 使用 reduction='none'，以便后面计算 sample_weight
     criterion = nn.CrossEntropyLoss(reduction='none')
 
-    best_val_corr = 0.20
+    best_val_corr = 0.0
     no_improvement_count = 0
     for epoch in range(99999):
 
@@ -176,7 +176,7 @@ def train_model(rank, world_size):
             if val_corr > best_val_corr:
                 best_val_corr = val_corr
                 no_improvement_count = 0
-                if val_corr > 0.3:
+                if val_corr > 0.38:
                     torch.save(model, 'best_model_discard.pt')
                     save = 1
             else:
@@ -212,8 +212,8 @@ from torch.utils.data import DataLoader
 import random
 
 world_size = 1
-batch_size=8
-early_stopping_patience=20
+batch_size=16
+early_stopping_patience=50
 
 if __name__ == '__main__':
     os.environ["OMP_NUM_THREADS"] = "16"
