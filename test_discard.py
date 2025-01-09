@@ -65,6 +65,6 @@ def simulate_game(model_path, seq_len=32, num_rounds=30):
 
 # 调用模拟游戏
 if __name__ == "__main__":
-    model_path = "discard_0.38.pt"  # 替换为实际模型路径
+    model_path = "discard_best.pt"  # 替换为实际模型路径
     torch.set_printoptions(precision=4, sci_mode=False)
     simulate_game(model_path)

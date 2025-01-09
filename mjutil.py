@@ -65,13 +65,13 @@ emoji = '🀇🀈🀉🀊🀋🀌🀍🀎🀏🀐🀑🀒🀓🀔🀕🀖🀗�
 
 def renderSimple (n, hand, discard):
     s = ''
-    if discard:
+    if discard is not None:
         hand.remove(discard)
     for h in hand:
-        s += emoji[h - 1]
-    if discard:
+        s += emoji[h]
+    if discard is not None:
         s += ' '
-        s += emoji[discard - 1]
+        s += emoji[discard]
     print(s)
 
 
